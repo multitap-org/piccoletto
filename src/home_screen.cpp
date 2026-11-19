@@ -12,10 +12,10 @@ constexpr float CARD_PADDING  = 10.0f;
 constexpr float MAIN_BUTTON   = 36.0f;   // GAMEPAD
 constexpr float SMALL_BUTTON  = 28.0f;   // REMOTE PLAY, DEVICES
 constexpr float BUTTON_GAP    = 4.0f;
-constexpr float ROW_HEIGHT    = 36.0f;
 constexpr float LAMP          = TOUCH_UI_LAMP;
-constexpr float TAB_WIDTH     = 14.0f;   // landscape: the sidebar's tab at the left edge
-constexpr float SIDEBAR_MAX   = 0.8f;    // of the screen's width
+constexpr float TAB_WIDTH     = 14.0f;   // landscape: the sidebar's tab at the right edge
+constexpr float BAR_HEIGHT    = 28.0f;   // portrait: the hosts bar at the bottom
+constexpr float SIDEBAR_MAX   = 0.8f;    // of the screen's width (landscape) or height (portrait)
 constexpr float SIDEBAR_CARD  = 64.0f;   // a host's column card
 
 // A light and a status word ("ONLINE"), the light level with the letters
@@ -119,62 +119,63 @@ static float card_height(const TouchUi* ui, const HomeHost* host)
     return text + 14.0f + buttons + CARD_PADDING;
 }
 
-// The other hosts, one row each: tapping one puts it on the card.
-static float draw_rows(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count, float x, float y,
-                       float width)
-{
-    const RetroUiPalette* palette = &ui->palette;
-    for (int32_t i = 0; i < host_count; i++)
-    {
-        if (i == home->selected)
-        {
-            continue;
-        }
-        const HomeHost* host = &hosts[i];
-        char id[24];
-        std::snprintf(id, sizeof(id), "##host%d", static_cast<int>(i));
-        if (touch_ui_button(ui, id, x, y, width, ROW_HEIGHT, nullptr, TouchButton::card, TouchText::normal))
-        {
-            home->selected = i;
-        }
-        float text_y = y + 14.0f;
-        draw_status(ui, x + 10.0f, text_y, host->online, nullptr);
-        touch_ui_text(ui, x + 10.0f + LAMP + 8.0f, text_y, host->name,
-                      host->online ? palette->text_highlight : palette->text_disabled, TouchText::normal);
-        const char* status = host->online ? "ONLINE" : "OFFLINE";
-        float status_width = touch_ui_text_width(ui, status, TouchText::normal);
-        touch_ui_text(ui, x + width - 10.0f - status_width, text_y, status, palette->text_disabled, TouchText::normal);
-        y += ROW_HEIGHT + BUTTON_GAP;
-    }
-    return y;
-}
-
 // How many hosts the sidebar holds: all but the one on the card.
 static int32_t other_count(int32_t host_count)
 {
     return host_count > 1 ? host_count - 1 : 0;
 }
 
-// The tab at the left edge that opens the sidebar: an arrow and how many
-// hosts are behind it.
-static void draw_tab(HomeScreen* home, const TouchUi* ui, int32_t others, float y, float height)
+// Landscape: the tab at the right edge that opens the sidebar, an arrow and
+// how many hosts are behind it.
+static void draw_tab(HomeScreen* home, const TouchUi* ui, int32_t others, float x, float y, float height)
 {
     const RetroUiPalette* palette = &ui->palette;
     bool held = false;
-    if (touch_ui_area(ui, "##sidebar_tab", 0.0f, y, TAB_WIDTH, height, &held))
+    if (touch_ui_area(ui, "##sidebar_tab", x, y, TAB_WIDTH, height, &held))
     {
         home->sidebar_open = true;
     }
-    touch_ui_rect(ui, 0.0f, y, TAB_WIDTH, height, held ? palette->highlight : palette->panel_face);
+    touch_ui_rect(ui, x, y, TAB_WIDTH, height, held ? palette->highlight : palette->panel_face);
     float middle = y + height * 0.5f;
-    float arrow_width = touch_ui_text_width(ui, PIXEL_FONT_UTF8_ARROW_RIGHT, TouchText::normal);
-    touch_ui_text(ui, std::floor((TAB_WIDTH - arrow_width) * 0.5f), std::floor(middle - 10.0f), PIXEL_FONT_UTF8_ARROW_RIGHT,
+    float arrow_width = touch_ui_text_width(ui, PIXEL_FONT_UTF8_ARROW_LEFT, TouchText::normal);
+    touch_ui_text(ui, std::floor(x + (TAB_WIDTH - arrow_width) * 0.5f), std::floor(middle - 10.0f), PIXEL_FONT_UTF8_ARROW_LEFT,
                   palette->text_highlight, TouchText::normal);
     char count[16];
     std::snprintf(count, sizeof(count), "%d", static_cast<int>(others));
     float count_width = touch_ui_text_width(ui, count, TouchText::normal);
-    touch_ui_text(ui, std::floor((TAB_WIDTH - count_width) * 0.5f), std::floor(middle + 2.0f), count, palette->text_disabled,
+    touch_ui_text(ui, std::floor(x + (TAB_WIDTH - count_width) * 0.5f), std::floor(middle + 2.0f), count, palette->text_disabled,
                   TouchText::normal);
+}
+
+// Portrait: the hosts bar across the bottom, like a status bar: an arrow,
+// how many other hosts there are, and a light for each. Tapping it opens the
+// sidebar upward.
+static void draw_bar(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count, int32_t others, float y,
+                     float width)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    bool held = false;
+    if (touch_ui_area(ui, "##hosts_bar", 0.0f, y, width, BAR_HEIGHT, &held))
+    {
+        home->sidebar_open = true;
+    }
+    touch_ui_rect(ui, 0.0f, y, width, BAR_HEIGHT, held ? palette->highlight : palette->panel_face);
+    float text_y = touch_ui_centered_text_y(ui, y, BAR_HEIGHT, TouchText::normal);
+    float x = MARGIN + 2.0f;
+    x += touch_ui_text(ui, x, text_y, PIXEL_FONT_UTF8_ARROW_UP, palette->text_highlight, TouchText::normal) + 6.0f;
+    char label[32];
+    std::snprintf(label, sizeof(label), others == 1 ? "%d MORE HOST" : "%d MORE HOSTS", static_cast<int>(others));
+    touch_ui_text(ui, x, text_y, label, palette->text_highlight, TouchText::normal);
+    float lamp_x = width - MARGIN - 2.0f - LAMP;
+    for (int32_t i = host_count - 1; i >= 0; i--)
+    {
+        if (i == home->selected)
+        {
+            continue;
+        }
+        touch_ui_lamp(ui, lamp_x, text_y, hosts[i].online ? TOUCH_UI_LAMP_ONLINE : palette->text_disabled);
+        lamp_x -= LAMP + 4.0f;
+    }
 }
 
 NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
@@ -195,40 +196,41 @@ NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* 
     NavAction action = title_bar_icons(ui, true, found_count);
 
     float content_y = title_bar_bottom(ui) + (landscape ? 6.0f : 12.0f);
+    int32_t others = other_count(host_count);
     if (landscape)
     {
         // The card across the screen; the others behind the tab.
-        float card_x = MARGIN;
-        int32_t others = other_count(host_count);
+        float card_right = width - MARGIN;
         if (others > 0)
         {
-            draw_tab(home, ui, others, content_y, height - content_y - MARGIN);
-            card_x = TAB_WIDTH + MARGIN;
+            draw_tab(home, ui, others, width - TAB_WIDTH, content_y, height - content_y - MARGIN);
+            card_right = width - TAB_WIDTH - MARGIN;
         }
         if (host_count > 0)
         {
-            NavAction card = draw_card(ui, &hosts[home->selected], card_x, content_y, width - card_x - MARGIN,
+            NavAction card = draw_card(ui, &hosts[home->selected], MARGIN, content_y, card_right - MARGIN,
                                        height - content_y - MARGIN);
             action = card != NavAction::none ? card : action;
         }
         return action;
     }
 
-    float column = width - 2.0f * MARGIN;
-    float y = content_y;
+    // Portrait: the card under the title; the others behind the bar at the bottom.
     if (host_count > 0)
     {
         float card = card_height(ui, &hosts[home->selected]);
-        NavAction tapped = draw_card(ui, &hosts[home->selected], MARGIN, y, column, card);
+        NavAction tapped = draw_card(ui, &hosts[home->selected], MARGIN, content_y, width - 2.0f * MARGIN, card);
         action = tapped != NavAction::none ? tapped : action;
-        y += card + MARGIN;
     }
-    draw_rows(home, ui, hosts, host_count, MARGIN, y, column);
+    if (others > 0)
+    {
+        draw_bar(home, ui, hosts, host_count, others, height - BAR_HEIGHT, width);
+    }
     return action;
 }
 
-// One host in the sidebar, a column card like a port in DEVICES: its status,
-// its name, what it's playing. Tapping it puts it on HOME's card.
+// One host in the sidebar, a card like a port in DEVICES: its status, its
+// name, what it's playing. Tapping it puts it on HOME's card.
 static bool draw_sidebar_host(const TouchUi* ui, const HomeHost* host, int32_t index, float x, float y, float width)
 {
     const RetroUiPalette* palette = &ui->palette;
@@ -253,49 +255,82 @@ void home_sidebar_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* host
     const RetroUiPalette* palette = &ui->palette;
     float width = touch_ui_width(ui);
     float height = touch_ui_height(ui);
+    bool landscape = width > height;
     int32_t others = other_count(host_count);
-    if (width <= height || others == 0)
+    if (others == 0)
     {
         home->sidebar_open = false;
         return;
     }
-
-    // As wide as its columns (DEVICES' port width), up to 80% of the screen.
-    float column = std::floor((width - 5.0f * MARGIN) / 4.0f);
     float count = static_cast<float>(others);
-    float sidebar_width = count * column + (count + 1.0f) * MARGIN;
-    float widest = std::floor(width * SIDEBAR_MAX);
-    if (sidebar_width > widest)
+
+    // Where the sidebar is: landscape, at the right, one column per host (as
+    // wide as DEVICES' ports); portrait, at the bottom, one card per row. As
+    // big as the hosts need, up to 80% of the screen.
+    float side_x = 0.0f;
+    float side_y = 0.0f;
+    float side_width = width;
+    float side_height = height;
+    float card_width = width - 2.0f * MARGIN;
+    float title_height = TITLE_BAR_ICON + 6.0f;
+    if (landscape)
     {
-        sidebar_width = widest;
-        column = std::floor((sidebar_width - (count + 1.0f) * MARGIN) / count);
+        card_width = std::floor((width - 5.0f * MARGIN) / 4.0f);
+        side_width = count * card_width + (count + 1.0f) * MARGIN;
+        float widest = std::floor(width * SIDEBAR_MAX);
+        if (side_width > widest)
+        {
+            side_width = widest;
+            card_width = std::floor((side_width - (count + 1.0f) * MARGIN) / count);
+        }
+        side_x = width - side_width;
+    }
+    else
+    {
+        side_height = title_height + count * (SIDEBAR_CARD + MARGIN) + MARGIN;
+        float tallest = std::floor(height * SIDEBAR_MAX);
+        side_height = side_height > tallest ? tallest : side_height;
+        side_y = height - side_height;
     }
 
     // The rest of the screen dimmed: a tap there closes the sidebar.
+    float rest_x = 0.0f;
+    float rest_width = landscape ? side_x : width;
+    float rest_height = landscape ? height : side_y;
     bool held = false;
-    if (touch_ui_area(ui, "##sidebar_outside", sidebar_width, 0.0f, width - sidebar_width, height, &held))
+    if (touch_ui_area(ui, "##sidebar_outside", rest_x, 0.0f, rest_width, rest_height, &held))
     {
         home->sidebar_open = false;
     }
-    touch_ui_rect(ui, sidebar_width, 0.0f, width - sidebar_width, height, 0x99000000u);
-    touch_ui_rect(ui, 0.0f, 0.0f, sidebar_width, height, palette->background);
+    touch_ui_rect(ui, rest_x, 0.0f, rest_width, rest_height, 0x99000000u);
+    touch_ui_rect(ui, side_x, side_y, side_width, side_height, palette->background);
 
-    float header_y = title_bar_y(ui);
-    touch_ui_text(ui, MARGIN + 4.0f, touch_ui_centered_text_y(ui, header_y, TITLE_BAR_ICON, TouchText::big), "HOSTS",
+    // Its title where the title bar's is in landscape; at its top in portrait.
+    float header_y = landscape ? title_bar_y(ui) : side_y + 6.0f;
+    touch_ui_text(ui, side_x + MARGIN + 4.0f, touch_ui_centered_text_y(ui, header_y, TITLE_BAR_ICON, TouchText::big), "HOSTS",
                   palette->text_highlight, TouchText::big);
-    float y = title_bar_bottom(ui) + 6.0f;
-    float x = MARGIN;
+    float x = side_x + MARGIN;
+    float y = landscape ? title_bar_bottom(ui) + 6.0f : side_y + title_height;
+    touch_ui_push_clip(ui, side_x, side_y, side_width, side_height);
     for (int32_t i = 0; i < host_count; i++)
     {
         if (i == home->selected)
         {
             continue;
         }
-        if (draw_sidebar_host(ui, &hosts[i], i, x, y, column))
+        if (draw_sidebar_host(ui, &hosts[i], i, x, y, card_width))
         {
             home->selected = i;
             home->sidebar_open = false;
         }
-        x += column + MARGIN;
+        if (landscape)
+        {
+            x += card_width + MARGIN;
+        }
+        else
+        {
+            y += SIDEBAR_CARD + MARGIN;
+        }
     }
+    touch_ui_pop_clip();
 }

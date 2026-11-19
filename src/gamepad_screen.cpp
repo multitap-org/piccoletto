@@ -56,13 +56,14 @@ NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port,
     PadFrame frame = pad_frame_fit(ui, layout->width, layout->height);
     if (!editor->active)
     {
-        // The title bar's icons where HOME has them (+ off here); no back
-        // button (the sheet's LEAVE).
+        // The title bar's back arrow and icons where HOME has them (+ off here).
         action = title_bar_icons(ui, false, 0);
-        char status[96];
+        if (title_bar_back(ui))
+        {
+            action = NavAction::home;
+        }
         const char* latency = "9 MS";   // placeholder until there's a connection to measure
-        std::snprintf(status, sizeof(status), "%s · PORT %d · %s", host, static_cast<int>(port), latency);
-        pad_text(ui, &frame, layout->width * 0.5f, 358, status, palette->panel_dark, TouchText::normal, true);
+        title_bar_status(ui, host, port, latency, palette->text_highlight);
     }
     NavAction pad = draw_pad(ui, &frame, layout, editor);
     return pad != NavAction::none ? pad : action;

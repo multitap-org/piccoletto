@@ -6,7 +6,7 @@
 #include "pixel_font_imgui.h"
 #include "title_bar.h"
 
-// The line under the picture in portrait (the host, the latency), retro pixels.
+// The line under the picture in portrait (the port LEDs, the host, the latency), retro pixels.
 constexpr float STATUS_HEIGHT = 12.0f;
 // The row of ☰ / rotate / GAMEPAD under the pad in portrait, retro pixels.
 constexpr float BUTTON_ROW = 30.0f;
@@ -57,7 +57,23 @@ static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* l
     return NavAction::none;
 }
 
-NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const RemoteStream* stream, PadLayouts* layouts,
+// The ping until there's a connection to measure.
+static const char* const PLACEHOLDER_LATENCY = "9 MS";
+
+// Over the picture: the back arrow, the port LEDs with the host and the
+// ping, and the title bar's icons (+ off here), where HOME has them.
+static NavAction draw_title_bar(const TouchUi* ui, const char* host, int32_t port)
+{
+    title_bar_status(ui, host, port, PLACEHOLDER_LATENCY, ui->palette.text_highlight);
+    NavAction action = title_bar_icons(ui, false, 0);
+    if (title_bar_back(ui))
+    {
+        action = NavAction::home;
+    }
+    return action;
+}
+
+NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, const RemoteStream* stream, PadLayouts* layouts,
                                   PadEditor* editor)
 {
     const RetroUiPalette* palette = &ui->palette;
@@ -84,13 +100,17 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
             touch_ui_rect(ui, 0.0f, 0.0f, width, pad_top, palette->panel_dark);
             draw_picture(ui, stream, 0.0f, 0.0f, pw, ph);
             float status_y = ph + 2.0f;
-            touch_ui_lamp(ui, 4.0f, status_y, TOUCH_UI_LAMP_ONLINE);
-            touch_ui_text(ui, 4.0f + TOUCH_UI_LAMP + 5.0f, status_y, host, palette->text_disabled, TouchText::normal);
-            const char* latency = "9 MS";   // placeholder until there's a connection to measure
+            float leds = title_bar_port_leds(ui, 4.0f, status_y, port);
+            touch_ui_text(ui, 4.0f + leds + 6.0f, status_y, host, palette->text_disabled, TouchText::normal);
+            const char* latency = PLACEHOLDER_LATENCY;
             touch_ui_text(ui, width - 4.0f - touch_ui_text_width(ui, latency, TouchText::normal), status_y, latency,
                           palette->text_disabled, TouchText::normal);
             if (!editor->active)
             {
+                if (title_bar_back(ui))
+                {
+                    action = NavAction::home;
+                }
                 float row_y = height - BUTTON_ROW + 2.0f;
                 float button = BUTTON_ROW - 6.0f;
                 if (touch_ui_button(ui, "##menu", 6.0f, row_y, button, button, PIXEL_FONT_UTF8_MENU, TouchButton::field,
@@ -117,7 +137,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
         draw_picture(ui, stream, px, py, pw, ph);
         PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_portrait);
         PadFrame overlay_frame = pad_frame_fit(ui, overlay->width, overlay->height);
-        NavAction icons = editor->active ? NavAction::none : title_bar_icons(ui, false, 0);
+        NavAction icons = editor->active ? NavAction::none : draw_title_bar(ui, host, port);
         NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor);
         return pad != NavAction::none ? pad : icons;
     }
@@ -127,7 +147,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
     draw_picture(ui, stream, px, py, pw, ph);
     PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_landscape);
     PadFrame frame = pad_frame_fit(ui, overlay->width, overlay->height);
-    NavAction icons = editor->active ? NavAction::none : title_bar_icons(ui, false, 0);
+    NavAction icons = editor->active ? NavAction::none : draw_title_bar(ui, host, port);
     NavAction pad = draw_pad(ui, &frame, overlay, editor);
     return pad != NavAction::none ? pad : icons;
 }

@@ -320,7 +320,7 @@ static void draw_screen(App* app)
             action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
-            action = remote_play_screen_draw(&app->ui, selected_host(app), &app->stream, &app->layouts, &app->editor);
+            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, &app->stream, &app->layouts, &app->editor);
             break;
         case Screen::devices:
             action = devices_screen_draw(&app->devices, &app->ui, selected_host(app));

@@ -77,15 +77,15 @@ src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts
 src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
                         buttons (normal, primary, ghost, card, plain, field)
 src/screens.h           Screen, NavAction (what a tap asks for)
-src/title_bar.*         the title bar's icons (+ = PAIR A DEVICE with the found count, rotate, ☰), the same
-                        place on HOME, GAMEPAD and REMOTE PLAY (+ off on the pads)
-src/home_screen.*       HOME: card of the selected host with its granted modes; the other hosts as rows
-                        (portrait) or in a sidebar behind a tab at the left edge (landscape, up to 80% wide)
+src/title_bar.*         the title bar's row: back (every screen but HOME), the pads' status (port LEDs, host,
+                        ping), the icons (+ = PAIR A DEVICE with the found count, rotate, ☰; + off on the pads)
+src/home_screen.*       HOME: card of the selected host with its granted modes; the other hosts in a sidebar,
+                        closed to a tab at the right (landscape) or a bar at the bottom (portrait), up to 80%
 src/pair_screen.*       PAIR: pick a found host (or an address), 6-digit code, keypad
 src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held) in groups, as dp tables fitted
                         to the screen; the user's moves / sizes / alpha per group, saved
-src/pad_layouts.*       every layout's defaults: GAMEPAD portrait / landscape, REMOTE PLAY below the picture,
-                        overlay portrait (tall pictures: DS), overlay landscape
+src/pad_layouts.*       every layout's defaults: GAMEPAD portrait, landscape (one default shared by GAMEPAD and
+                        REMOTE PLAY), REMOTE PLAY below the picture, overlay portrait (tall pictures: DS)
 src/pad_editor.*        EDIT LAYOUT: drag groups, SIZE, OPACITY, SNAP (8 dp), RESET, DONE
 src/app_settings.*      piccoletto.cfg: phone name, theme, language, vibrate, overlay opacity, quality
 src/settings_screen.*   SETTINGS (HOME's ☰), drag to scroll

@@ -24,5 +24,5 @@ struct RemoteStream
     const char* aspect_label = "4:3";
 };
 
-NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const RemoteStream* stream, PadLayouts* layouts,
+NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, const RemoteStream* stream, PadLayouts* layouts,
                                   PadEditor* editor);

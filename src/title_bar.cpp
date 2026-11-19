@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_MENU, _ROTATE
+#include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_MENU, _ROTATE, _ARROW_LEFT
 
 constexpr int32_t ICON_COUNT = 3;
 
@@ -76,4 +76,38 @@ NavAction title_bar_icons(const TouchUi* ui, bool pair_enabled, int32_t found_co
         action = NavAction::menu;
     }
     return action;
+}
+
+bool title_bar_back(const TouchUi* ui)
+{
+    return touch_ui_button(ui, "##title_back", TITLE_BAR_MARGIN - 2.0f, title_bar_y(ui), TITLE_BAR_ICON, TITLE_BAR_ICON,
+                           PIXEL_FONT_UTF8_ARROW_LEFT, TouchButton::plain, TouchText::big);
+}
+
+constexpr float LED_SIZE = 5.0f;   // a letter's height, like TOUCH_UI_LAMP
+constexpr float LED_GAP  = 3.0f;
+
+float title_bar_port_leds(const TouchUi* ui, float x, float y, int32_t port)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    for (int32_t i = 0; i < TITLE_BAR_PORTS; i++)
+    {
+        bool lit = i + 1 == port;
+        touch_ui_rect(ui, x + static_cast<float>(i) * (LED_SIZE + LED_GAP), y + 2.0f, LED_SIZE, LED_SIZE,
+                      lit ? TOUCH_UI_LAMP_ONLINE : palette->panel_dark);
+    }
+    return static_cast<float>(TITLE_BAR_PORTS) * (LED_SIZE + LED_GAP) - LED_GAP;
+}
+
+void title_bar_status(const TouchUi* ui, const char* host, int32_t port, const char* latency, uint32_t text_argb)
+{
+    char text[96];
+    std::snprintf(text, sizeof(text), "%s · %s", host, latency);
+    float leds_width = static_cast<float>(TITLE_BAR_PORTS) * (LED_SIZE + LED_GAP) - LED_GAP;
+    float gap = 6.0f;
+    float total = leds_width + gap + touch_ui_text_width(ui, text, TouchText::normal);
+    float x = std::floor((touch_ui_width(ui) - total) * 0.5f);
+    float y = touch_ui_centered_text_y(ui, title_bar_y(ui), TITLE_BAR_ICON, TouchText::normal);
+    x += title_bar_port_leds(ui, x, y, port) + gap;
+    touch_ui_text(ui, x, y, text, text_argb, TouchText::normal);
 }
