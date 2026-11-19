@@ -5,7 +5,7 @@
 
 #include "imgui.h"
 
-#include "pixel_font_imgui.h"   // also PIXEL_FONT_IMGUI_UNIT
+#include "pixel_font_imgui.h"
 
 // Layout, in retro pixels (half the mockups' dp).
 constexpr float MARGIN        = 8.0f;
@@ -33,7 +33,7 @@ static void address_field(PairScreen* pair, const TouchUi* ui, float x, float y,
     float scale = static_cast<float>(ui->scale);
     float text_y = touch_ui_centered_text_y(ui, y, ROW_HEIGHT, TouchText::normal);
     ImGui::SetCursorScreenPos(ImVec2(std::floor((x + 10.0f) * scale), std::floor(text_y * scale)));
-    ImGui::PushFont(ui->font, PIXEL_FONT_IMGUI_UNIT * scale);
+    ImGui::PushFont(ui->font, touch_ui_imgui_font_size(ui, TouchText::normal));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -112,7 +112,7 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
 static void draw_code(const PairScreen* pair, const TouchUi* ui, const PairProgress* progress, float x, float y, float width)
 {
     const RetroUiPalette* palette = &ui->palette;
-    touch_ui_text(ui, x + 4.0f, y, "2 · TYPE THE CODE ON ITS SCREEN", palette->text_disabled, TouchText::normal);
+    touch_ui_text(ui, x + 4.0f, y, "2 · TYPE ITS CODE", palette->text_disabled, TouchText::normal);
     y += 12.0f;
     float box_gap = 5.0f;
     float box_width = (width - box_gap * (PAIR_CODE_LENGTH - 1)) / PAIR_CODE_LENGTH;
@@ -161,6 +161,7 @@ static bool draw_keypad(PairScreen* pair, const TouchUi* ui, int32_t found_count
         {
             continue;
         }
+        pair->typed = true;
         if (ok)
         {
             done = complete;
@@ -191,6 +192,7 @@ NavAction pair_screen_draw(PairScreen* pair, const TouchUi* ui, const char* cons
     bool landscape = width > height;
     NavAction action = NavAction::none;
     *done = false;
+    pair->typed = false;
     if (pair->selected >= found_count)
     {
         pair->selected = 0;

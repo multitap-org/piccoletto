@@ -56,6 +56,7 @@ struct App
     RealGamepad    gamepad    = {};   // gamepads connected to the phone
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
     Hosts          hosts;             // the paired hosts, discovery, pairing, the connection
+    PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (PAIR clears the code when it fails)
     std::string    settings_dir;      // settings/ ("" = nothing is saved)
     std::string    settings_path;     // settings/piccoletto.cfg ("" = nothing is saved)
     std::string    layouts_path;      // settings/layouts.cfg
@@ -382,11 +383,22 @@ static NavAction draw_pair(App* app)
     }
     else if (hosts->pair == PairStatus::failed)
     {
-        progress.text = hosts_refusal_text(hosts->refusal);
+        progress.text = hosts_pair_failure_text(hosts);
         progress.error = true;
     }
     bool done = false;
     NavAction action = pair_screen_draw(&app->pair, &app->ui, found, found_count, &progress, &done);
+    // A failed attempt: the host has a new code by now, so the typed one goes;
+    // the next key clears the message.
+    if (hosts->pair == PairStatus::failed && app->last_pair != PairStatus::failed)
+    {
+        pair_screen_reset(&app->pair);
+    }
+    else if (hosts->pair == PairStatus::failed && app->pair.typed)
+    {
+        hosts->pair = PairStatus::idle;
+    }
+    app->last_pair = hosts->pair;
     if (done)
     {
         NetAddress address;

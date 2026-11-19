@@ -248,7 +248,9 @@ static void on_ready(Hosts* hosts, const NetClientEvent* event, NetAddress addre
     host->address = address;
     host->access = event->access;
     write_info(hosts, host);
-    if (event->newly_paired)
+    // Pairing with a host that already knows us (and we it): it welcomes us
+    // without asking for the code. Paired all the same.
+    if (event->newly_paired || hosts->pair == PairStatus::busy)
     {
         SDL_Log("Network: paired with %s", host->name.c_str());
         hosts->pair = PairStatus::paired;
@@ -293,6 +295,13 @@ void hosts_update(Hosts* hosts, double now)
             if (hosts->pair == PairStatus::busy)
             {
                 hosts->pair = PairStatus::failed;
+                // Welcomed by a host we don't know while pairing: it still
+                // lists this phone (forgotten here, not there), so it didn't
+                // ask for the code, and its key can't be trusted without it.
+                if (event.refusal == NetClientRefusal::unknown_host)
+                {
+                    hosts->refusal_still_known = true;
+                }
             }
             if (hosts->link == LinkStatus::connecting)
             {
@@ -350,6 +359,7 @@ bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
     hosts->pair = PairStatus::busy;
     hosts->paired_index = -1;
     hosts->refusal = NetClientRefusal::none;
+    hosts->refusal_still_known = false;
     hosts->connecting_to = address;
     return true;
 }
@@ -435,12 +445,21 @@ bool hosts_parse_address(const char* text, NetAddress* address)
     return host[0] != '\0' && net_address_from_text(host, port, address);
 }
 
+const char* hosts_pair_failure_text(const Hosts* hosts)
+{
+    if (hosts->refusal_still_known)
+    {
+        return "REMOVE THIS PHONE ON IT FIRST";
+    }
+    return hosts_refusal_text(hosts->refusal);
+}
+
 const char* hosts_refusal_text(NetClientRefusal refusal)
 {
     switch (refusal)
     {
     case NetClientRefusal::none:           return "";
-    case NetClientRefusal::not_paired:     return "IT DOESN'T KNOW THIS PHONE: PAIR AGAIN";
+    case NetClientRefusal::not_paired:     return "IT FORGOT THIS PHONE: PAIR AGAIN";
     case NetClientRefusal::pairing_closed: return "OPEN PAIR A DEVICE ON IT FIRST";
     case NetClientRefusal::wrong_code:     return "WRONG CODE";
     case NetClientRefusal::unknown_host:   return "NOT THE DEVICE YOU PAIRED WITH";

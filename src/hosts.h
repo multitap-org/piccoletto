@@ -78,6 +78,7 @@ struct Hosts
     int32_t                linked = -1;         // the known host connecting / connected
     NetAddress             connecting_to;       // the address of the connection running (kept when it's ready)
     NetClientRefusal       refusal = NetClientRefusal::none;
+    bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
 };
 
 // `settings_dir`: where the files above go. False (and networking off, the
@@ -113,3 +114,6 @@ bool hosts_parse_address(const char* text, NetAddress* address);
 
 // "WRONG CODE" etc., for the screens.
 const char* hosts_refusal_text(NetClientRefusal refusal);
+// What PAIR says when pairing failed (hosts_refusal_text, or that the host
+// still lists this phone and has to remove it first).
+const char* hosts_pair_failure_text(const Hosts* hosts);

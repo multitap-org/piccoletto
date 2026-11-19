@@ -111,6 +111,13 @@ float touch_ui_text_height(const TouchUi* ui, TouchText size)
     return font_size(ui, size) / static_cast<float>(ui->scale);
 }
 
+float touch_ui_imgui_font_size(const TouchUi* ui, TouchText size)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+    float imgui_scale = style.FontScaleMain * style.FontScaleDpi;
+    return font_size(ui, size) / (imgui_scale > 0.0f ? imgui_scale : 1.0f);
+}
+
 float touch_ui_text(const TouchUi* ui, float x, float y, const char* text, uint32_t argb, TouchText size)
 {
     ImGui::GetWindowDrawList()->AddText(ui->font, font_size(ui, size), ImVec2(px(ui, x), px(ui, y)), to_imgui(argb), text);

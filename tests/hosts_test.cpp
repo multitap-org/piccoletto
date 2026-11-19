@@ -171,7 +171,13 @@ int main(int argc, char** argv)
         pump_once(&pump);
     }
     check(hosts->known.size() == 1 && hosts->known[0].online, "online through discovery");
-    check(hosts_unpaired_count(hosts) == 0, "a paired host isn't offered for pairing");
+    // (Only ours: a real host on the default port may answer the broadcast too.)
+    bool offered = false;
+    for (int32_t i = 0; i < hosts_unpaired_count(hosts); i++)
+    {
+        offered = offered || hosts_unpaired(hosts, i)->address.port == TEST_PORT;
+    }
+    check(!offered, "a paired host isn't offered for pairing");
 
     // What was saved comes back.
     hosts_destroy(hosts);

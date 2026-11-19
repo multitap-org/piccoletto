@@ -22,6 +22,7 @@ struct PairScreen
     int32_t length = 0;
     bool    typing_address = false;               // the address field instead of a found host
     char    address[PAIR_ADDRESS_SIZE] = {};      // "192.168.1.20" or "192.168.1.20:55420"
+    bool    typed = false;                        // a key was tapped this frame (the app clears an old error)
 };
 
 // How the pairing goes, from the app.

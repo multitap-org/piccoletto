@@ -63,6 +63,11 @@ float touch_ui_text_width(const TouchUi* ui, const char* text, TouchText size);
 // The line's height in retro pixels.
 float touch_ui_text_height(const TouchUi* ui, TouchText size);
 
+// The size to give ImGui::PushFont for an ImGui widget (a text field) so its
+// text matches touch_ui_text's: ImGui scales pushed fonts by the style's
+// font scales (frontends-common sets the DPI one to the display's scale).
+float touch_ui_imgui_font_size(const TouchUi* ui, TouchText size);
+
 // A filled rectangle.
 void touch_ui_rect(const TouchUi* ui, float x, float y, float width, float height, uint32_t argb);
 

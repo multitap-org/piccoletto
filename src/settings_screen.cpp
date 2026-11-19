@@ -51,7 +51,7 @@ static void name_field(const TouchUi* ui, AppSettings* settings, float x, float 
     float scale = static_cast<float>(ui->scale);
     float text_y = touch_ui_centered_text_y(ui, y, CONTROL, TouchText::normal);
     ImGui::SetCursorScreenPos(ImVec2(std::floor((x + 6.0f) * scale), std::floor(text_y * scale)));
-    ImGui::PushFont(ui->font, PIXEL_FONT_IMGUI_UNIT * scale);
+    ImGui::PushFont(ui->font, touch_ui_imgui_font_size(ui, TouchText::normal));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
