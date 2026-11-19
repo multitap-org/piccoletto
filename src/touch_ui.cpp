@@ -117,6 +117,13 @@ float touch_ui_text(const TouchUi* ui, float x, float y, const char* text, uint3
     return touch_ui_text_width(ui, text, size);
 }
 
+void touch_ui_pointer(const TouchUi* ui, float* x, float* y)
+{
+    const ImGuiIO& io = ImGui::GetIO();
+    *x = io.MousePos.x / static_cast<float>(ui->scale);
+    *y = io.MousePos.y / static_cast<float>(ui->scale);
+}
+
 void touch_ui_rect(const TouchUi* ui, float x, float y, float width, float height, uint32_t argb)
 {
     ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(px(ui, x), px(ui, y)), ImVec2(px(ui, x + width), px(ui, y + height)),

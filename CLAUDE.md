@@ -77,7 +77,10 @@ src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts
 src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
                         buttons (normal, primary, ghost, card, plain, field)
 src/screens.h           Screen, NavAction (what a tap asks for)
-src/home_screen.*       HOME: card of the selected host with its granted modes, other hosts as rows, PAIR A DEVICE
+src/title_bar.*         the title bar's icons (+ = PAIR A DEVICE with the found count, rotate, ☰), the same
+                        place on HOME, GAMEPAD and REMOTE PLAY (+ off on the pads)
+src/home_screen.*       HOME: card of the selected host with its granted modes; the other hosts as rows
+                        (portrait) or in a sidebar behind a tab at the left edge (landscape, up to 80% wide)
 src/pair_screen.*       PAIR: pick a found host (or an address), 6-digit code, keypad
 src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held) in groups, as dp tables fitted
                         to the screen; the user's moves / sizes / alpha per group, saved
@@ -114,7 +117,9 @@ cmake --build build && ctest --test-dir build
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_AS_ERRORS=ON -DMULTITAP_SANITIZE=ON
 cmake --build build-asan && (cd build-asan && LSAN_OPTIONS=suppressions=$PWD/../tools/lsan-suppressions.txt ctest)
 ./build/piccoletto        # a phone-shaped window; normal builds also copy it to ~/.local/share/piccoletto/
-android/build-apk.sh      # -> android/build/piccoletto.apk (adb install -r ...; adb logcat -s SDL)
+android/build-apk.sh      # -> android/build/piccoletto.apk (adb install --no-incremental -r ...; adb logcat -s SDL)
+adb shell "am start -S -n org.multitap.piccoletto/.PiccolettoActivity --es args '--screen gamepad'"
+adb exec-out screencap -p > shot.png   # screenshots from the device (not spectacle)
 ```
 
 Android: SDL's SDLActivity (SDL3 has no NativeActivity path), arm64 only.

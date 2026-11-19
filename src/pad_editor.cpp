@@ -99,7 +99,7 @@ bool pad_editor_draw(PadEditor* editor, const TouchUi* ui, const PadFrame* frame
         float height = 0.0f;
         pad_layout_part_rect(layout, i, &x, &y, &width, &height);
         pad_part_draw(ui, &layout->parts[i], pad_x(frame, x), pad_y(frame, y), pad_size(frame, width), pad_size(frame, height),
-                      layout->alpha, false, layout->overlay);
+                      layout->alpha, false, layout->overlay, 0.0f, 0.0f);
     }
     for (int32_t g = 0; g < PAD_GROUP_COUNT; g++)
     {

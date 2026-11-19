@@ -79,6 +79,9 @@ bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float 
 // *held while a finger (the mouse) is on it.
 bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held);
 
+// Where the finger (the mouse) is, in retro pixels from the screen's top left.
+void touch_ui_pointer(const TouchUi* ui, float* x, float* y);
+
 // A light the height of a letter at (x, y + 2): online green, or `argb`.
 constexpr float TOUCH_UI_LAMP = 5.0f;
 constexpr uint32_t TOUCH_UI_LAMP_ONLINE = 0xFF3AD15Au;

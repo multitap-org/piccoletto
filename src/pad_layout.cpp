@@ -241,7 +241,7 @@ void pad_text(const TouchUi* ui, const PadFrame* frame, float x, float y, const 
 }
 
 void pad_part_draw(const TouchUi* ui, const PadPart* part, float x, float y, float width, float height, float alpha, bool held,
-                   bool overlay)
+                   bool overlay, float stick_x, float stick_y)
 {
     const RetroUiPalette* palette = &ui->palette;
     uint32_t face = overlay ? palette->button_face : palette->field_face;
@@ -250,10 +250,13 @@ void pad_part_draw(const TouchUi* ui, const PadPart* part, float x, float y, flo
     touch_ui_rect(ui, x, y, width, height, pad_fade(held ? PART_LIT : face, alpha));
     if (part->kind == PadPartKind::stick)
     {
-        // The nub: the body's color, 40% of the block, in the middle.
+        // The nub: the body's color, 40% of the block, in the middle at
+        // rest, pushed toward the block's edges as the stick is.
         float nub_width = std::floor(width * 0.4f);
         float nub_height = std::floor(height * 0.4f);
-        touch_ui_rect(ui, std::floor(x + (width - nub_width) * 0.5f), std::floor(y + (height - nub_height) * 0.5f), nub_width,
+        float travel_x = (width - nub_width) * 0.5f;
+        float travel_y = (height - nub_height) * 0.5f;
+        touch_ui_rect(ui, std::floor(x + travel_x + stick_x * travel_x), std::floor(y + travel_y + stick_y * travel_y), nub_width,
                       nub_height, pad_fade(nub, alpha));
     }
     if (part->label[0] != '\0')
@@ -262,6 +265,26 @@ void pad_part_draw(const TouchUi* ui, const PadPart* part, float x, float y, flo
         touch_ui_text(ui, std::floor(x + (width - text_width) * 0.5f), touch_ui_centered_text_y(ui, y, height, part->size),
                       part->label, pad_fade(held ? PART_LIT_TEXT : text, alpha), part->size);
     }
+}
+
+// A held stick's position, -1..1 on each axis: where the finger is from the
+// block's middle, full tilt at the edge the nub can reach (40% of the block,
+// see pad_part_draw) and kept there when the finger goes past it (the press
+// stays the stick's until it's lifted).
+static float stick_axis(float finger, float start, float size)
+{
+    float travel = size * 0.3f;   // (size - the nub's 40%) / 2
+    float value = (finger - (start + size * 0.5f)) / travel;
+    return value < -1.0f ? -1.0f : (value > 1.0f ? 1.0f : value);
+}
+
+static void stick_position(const TouchUi* ui, float x, float y, float width, float height, float* stick_x, float* stick_y)
+{
+    float finger_x = 0.0f;
+    float finger_y = 0.0f;
+    touch_ui_pointer(ui, &finger_x, &finger_y);
+    *stick_x = stick_axis(finger_x, x, width);
+    *stick_y = stick_axis(finger_y, y, height);
 }
 
 int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout)
@@ -281,7 +304,14 @@ int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayou
         bool held = false;
         touch_ui_area(ui, layout->parts[i].id, screen_x, screen_y, screen_width, screen_height, &held);
         held_count += held ? 1 : 0;
-        pad_part_draw(ui, &layout->parts[i], screen_x, screen_y, screen_width, screen_height, layout->alpha, held, layout->overlay);
+        float stick_x = 0.0f;
+        float stick_y = 0.0f;
+        if (held && layout->parts[i].kind == PadPartKind::stick)
+        {
+            stick_position(ui, screen_x, screen_y, screen_width, screen_height, &stick_x, &stick_y);
+        }
+        pad_part_draw(ui, &layout->parts[i], screen_x, screen_y, screen_width, screen_height, layout->alpha, held, layout->overlay,
+                      stick_x, stick_y);
     }
     return held_count;
 }

@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "pixel_font_imgui.h"
+#include "title_bar.h"
 
 // The pad's layout (or its editor, while editing).
 static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor)
@@ -49,23 +50,19 @@ NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port,
         return pad != NavAction::none ? pad : action;
     }
 
+    // Landscape: the pad's body is the whole screen, the layout as big as it fits.
+    touch_ui_rect(ui, 0.0f, 0.0f, touch_ui_width(ui), touch_ui_height(ui), palette->button_face);
     PadLayout* layout = pad_layouts_get(layouts, PadLayoutId::gamepad_landscape);
     PadFrame frame = pad_frame_fit(ui, layout->width, layout->height);
-    pad_block(ui, &frame, 86, 88, 672, 272, palette->button_face);
     if (!editor->active)
     {
-        // Rotate and the sheet between the shoulders; no back button (the sheet's LEAVE).
-        if (pad_button(ui, &frame, "##rotate", 370, 20, 48, 48, PIXEL_FONT_UTF8_ROTATE, TouchButton::plain, TouchText::big))
-        {
-            action = NavAction::rotate;
-        }
-        if (pad_button(ui, &frame, "##menu", 426, 20, 48, 48, PIXEL_FONT_UTF8_MENU, TouchButton::plain, TouchText::big))
-        {
-            action = NavAction::menu;
-        }
-        char status[64];
-        std::snprintf(status, sizeof(status), "%s · PORT %d", host, static_cast<int>(port));
-        pad_text(ui, &frame, 422, 330, status, palette->panel_dark, TouchText::normal, true);
+        // The title bar's icons where HOME has them (+ off here); no back
+        // button (the sheet's LEAVE).
+        action = title_bar_icons(ui, false, 0);
+        char status[96];
+        const char* latency = "9 MS";   // placeholder until there's a connection to measure
+        std::snprintf(status, sizeof(status), "%s · PORT %d · %s", host, static_cast<int>(port), latency);
+        pad_text(ui, &frame, layout->width * 0.5f, 358, status, palette->panel_dark, TouchText::normal, true);
     }
     NavAction pad = draw_pad(ui, &frame, layout, editor);
     return pad != NavAction::none ? pad : action;

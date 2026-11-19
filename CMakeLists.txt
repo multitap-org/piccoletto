@@ -134,6 +134,7 @@ set(PICCOLETTO_SOURCES
     src/pad_editor.cpp
     src/app_settings.cpp
     src/settings_screen.cpp
+    src/title_bar.cpp
 )
 if(ANDROID)
     # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):

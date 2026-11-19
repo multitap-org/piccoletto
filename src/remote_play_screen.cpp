@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "pixel_font_imgui.h"
+#include "title_bar.h"
 
 // The line under the picture in portrait (the host, the latency), retro pixels.
 constexpr float STATUS_HEIGHT = 12.0f;
@@ -54,24 +55,6 @@ static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* l
     }
     pad_layout_draw(ui, frame, layout);
     return NavAction::none;
-}
-
-// ☰ and rotate as plain icons in the top right corner (over the picture).
-static NavAction draw_corner_icons(const TouchUi* ui, float width)
-{
-    NavAction action = NavAction::none;
-    float size = 24.0f;
-    if (touch_ui_button(ui, "##rotate", width - 4.0f - 2.0f * size, 2.0f, size, size, PIXEL_FONT_UTF8_ROTATE, TouchButton::plain,
-                        TouchText::big))
-    {
-        action = NavAction::rotate;
-    }
-    if (touch_ui_button(ui, "##menu", width - 4.0f - size, 2.0f, size, size, PIXEL_FONT_UTF8_MENU, TouchButton::plain,
-                        TouchText::big))
-    {
-        action = NavAction::menu;
-    }
-    return action;
 }
 
 NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const RemoteStream* stream, PadLayouts* layouts,
@@ -134,7 +117,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
         draw_picture(ui, stream, px, py, pw, ph);
         PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_portrait);
         PadFrame overlay_frame = pad_frame_fit(ui, overlay->width, overlay->height);
-        NavAction icons = editor->active ? NavAction::none : draw_corner_icons(ui, width);
+        NavAction icons = editor->active ? NavAction::none : title_bar_icons(ui, false, 0);
         NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor);
         return pad != NavAction::none ? pad : icons;
     }
@@ -144,7 +127,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
     draw_picture(ui, stream, px, py, pw, ph);
     PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_landscape);
     PadFrame frame = pad_frame_fit(ui, overlay->width, overlay->height);
-    NavAction icons = editor->active ? NavAction::none : draw_corner_icons(ui, width);
+    NavAction icons = editor->active ? NavAction::none : title_bar_icons(ui, false, 0);
     NavAction pad = draw_pad(ui, &frame, overlay, editor);
     return pad != NavAction::none ? pad : icons;
 }

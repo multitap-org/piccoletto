@@ -1,9 +1,11 @@
 #pragma once
 
 // HOME: the paired hosts (piccolos). The selected one is a big card with the
-// modes this phone may use on it; the others are one-line rows; at the
-// bottom, PAIR A DEVICE with how many unpaired ones are on the network.
-// Portrait and landscape (card on the left, rows on the right).
+// modes this phone may use on it. Portrait: the others are one-line rows
+// under it. Landscape: the card fills the screen and the others are in a
+// sidebar, hidden behind a tab at the left edge, one column per host (like
+// DEVICES' ports), as wide as they need up to 80% of the screen. PAIR A
+// DEVICE is the title bar's + (with how many unpaired ones were found).
 
 #include <cstdint>
 
@@ -29,10 +31,16 @@ struct HomeHost
 
 struct HomeScreen
 {
-    int32_t selected = 0;   // the host on the big card
+    int32_t selected     = 0;       // the host on the big card
+    bool    sidebar_open = false;   // landscape: the other hosts' sidebar
 };
 
 // Draws HOME between touch_ui_begin_screen / end. Returns what was tapped
 // (for the selected host, home->selected).
 NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
                             int32_t found_count);
+
+// The sidebar, in its own overlay window over HOME (touch_ui_begin_overlay),
+// while home->sidebar_open: tapping a host puts it on the card, tapping
+// outside closes it. Closes itself in portrait.
+void home_sidebar_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count);

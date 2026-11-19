@@ -251,12 +251,16 @@ static void handle_action(App* app, NavAction action)
 }
 
 // The back button (Android's, Escape on the desktop): closes the sheet or
-// EDIT LAYOUT, else goes back to HOME, else leaves the app.
+// EDIT LAYOUT or HOME's sidebar, else goes back to HOME, else leaves the app.
 static void go_back(App* app)
 {
     if (app->sheet_open)
     {
         app->sheet_open = false;
+    }
+    else if (app->screen == Screen::home && app->home.sidebar_open)
+    {
+        app->home.sidebar_open = false;
     }
     else if (app->editor.active)
     {
@@ -332,6 +336,13 @@ static void draw_screen(App* app)
             break;
     }
     touch_ui_end_screen();
+    // HOME's sidebar (landscape) the same way, above HOME.
+    if (app->screen == Screen::home && app->home.sidebar_open)
+    {
+        touch_ui_begin_overlay(&app->ui, "##sidebar_window");
+        home_sidebar_draw(&app->home, &app->ui, PLACEHOLDER_HOSTS, PLACEHOLDER_HOST_COUNT);
+        touch_ui_end_screen();
+    }
     // The sheet in its own window above the screen: the screen behind takes no taps.
     if (app->sheet_open)
     {

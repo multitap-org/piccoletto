@@ -39,27 +39,31 @@ static const PadPart GAMEPAD_PORTRAIT[] = {
     {"##rstick", "", 230, 652, 112, 112, STICK, NORMAL, RSTICK},
 };
 
-// GAMEPAD, landscape (844 x 390 dp): piccolo's pad picture (100 x 46 units)
-// at 8 dp a unit, a little bigger SELECT / START for fingers.
+// GAMEPAD, landscape (780 x 390 dp): the pad's body is the whole screen
+// (Andrés: the background fills the screen so the pad can be bigger), so the
+// parts spread to its edges, laid out like piccolo's pad picture. The
+// shoulders stay clear of the title bar's icons in the top right corner
+// (on a 844 x 390 phone they start at 652 dp), the status line (host,
+// port, ping) goes at the bottom.
 static const PadPart GAMEPAD_LANDSCAPE[] = {
-    {"##l2", "L2", 134, 8, 112, 32, BUTTON, NORMAL, LSH},
-    {"##l", "L", 118, 48, 144, 32, BUTTON, NORMAL, LSH},
-    {"##r2", "R2", 598, 8, 112, 32, BUTTON, NORMAL, RSH},
-    {"##r", "R", 582, 48, 144, 32, BUTTON, NORMAL, RSH},
-    {"##dpad_center", "", 174, 160, 48, 48, BUTTON, NORMAL, DPAD},
-    {"##up", PIXEL_FONT_UTF8_ARROW_UP, 174, 112, 48, 48, BUTTON, NORMAL, DPAD},
-    {"##down", PIXEL_FONT_UTF8_ARROW_DOWN, 174, 208, 48, 48, BUTTON, NORMAL, DPAD},
-    {"##left", PIXEL_FONT_UTF8_ARROW_LEFT, 126, 160, 48, 48, BUTTON, NORMAL, DPAD},
-    {"##right", PIXEL_FONT_UTF8_ARROW_RIGHT, 222, 160, 48, 48, BUTTON, NORMAL, DPAD},
-    {"##x", "X", 622, 112, 48, 48, BUTTON, BIG, FACE},
-    {"##b", "B", 622, 208, 48, 48, BUTTON, BIG, FACE},
-    {"##y", "Y", 566, 160, 48, 48, BUTTON, BIG, FACE},
-    {"##a", "A", 678, 160, 48, 48, BUTTON, BIG, FACE},
-    {"##select", "SELECT", 318, 132, 80, 36, BUTTON, NORMAL, CENTER},
-    {"##start", "START", 446, 132, 80, 36, BUTTON, NORMAL, CENTER},
-    {"##guide", PIXEL_FONT_UTF8_MENU, 398, 184, 48, 36, BUTTON, NORMAL, CENTER},
-    {"##lstick", "", 278, 236, 72, 72, STICK, NORMAL, LSTICK},
-    {"##rstick", "", 494, 236, 72, 72, STICK, NORMAL, RSTICK},
+    {"##l2", "L2", 170, 8, 140, 36, BUTTON, NORMAL, LSH},
+    {"##l", "L", 150, 52, 180, 40, BUTTON, NORMAL, LSH},
+    {"##r2", "R2", 470, 8, 140, 36, BUTTON, NORMAL, RSH},
+    {"##r", "R", 450, 52, 180, 40, BUTTON, NORMAL, RSH},
+    {"##dpad_center", "", 160, 172, 60, 60, BUTTON, NORMAL, DPAD},
+    {"##up", PIXEL_FONT_UTF8_ARROW_UP, 160, 112, 60, 60, BUTTON, NORMAL, DPAD},
+    {"##down", PIXEL_FONT_UTF8_ARROW_DOWN, 160, 232, 60, 60, BUTTON, NORMAL, DPAD},
+    {"##left", PIXEL_FONT_UTF8_ARROW_LEFT, 100, 172, 60, 60, BUTTON, NORMAL, DPAD},
+    {"##right", PIXEL_FONT_UTF8_ARROW_RIGHT, 220, 172, 60, 60, BUTTON, NORMAL, DPAD},
+    {"##x", "X", 560, 112, 60, 60, BUTTON, BIG, FACE},
+    {"##b", "B", 560, 232, 60, 60, BUTTON, BIG, FACE},
+    {"##y", "Y", 500, 172, 60, 60, BUTTON, BIG, FACE},
+    {"##a", "A", 620, 172, 60, 60, BUTTON, BIG, FACE},
+    {"##select", "SELECT", 298, 126, 88, 40, BUTTON, NORMAL, CENTER},
+    {"##start", "START", 394, 126, 88, 40, BUTTON, NORMAL, CENTER},
+    {"##guide", PIXEL_FONT_UTF8_MENU, 360, 178, 60, 40, BUTTON, NORMAL, CENTER},
+    {"##lstick", "", 280, 256, 84, 84, STICK, NORMAL, LSTICK},
+    {"##rstick", "", 416, 256, 84, 84, STICK, NORMAL, RSTICK},
 };
 
 // REMOTE PLAY, portrait, under the picture (390 x 380 dp: the controls of the
@@ -99,19 +103,20 @@ static const PadPart REMOTE_OVERLAY_PORTRAIT[] = {
 };
 
 // REMOTE PLAY, landscape (844 x 390 dp): over the picture, the d-pad on the
-// left, the buttons on the right, the shoulders in the top corners.
+// left, the face buttons on the right (all four the same size, Andrés), the
+// shoulders in the top corners under the title bar's icons.
 static const PadPart REMOTE_OVERLAY_LANDSCAPE[] = {
-    {"##l", "L", 16, 10, 160, 40, BUTTON, NORMAL, LSH},
-    {"##r", "R", 668, 10, 160, 40, BUTTON, NORMAL, RSH},
-    {"##dpad_center", "", 84, 174, 52, 52, BUTTON, NORMAL, DPAD},
-    {"##up", PIXEL_FONT_UTF8_ARROW_UP, 84, 122, 52, 52, BUTTON, NORMAL, DPAD},
-    {"##down", PIXEL_FONT_UTF8_ARROW_DOWN, 84, 226, 52, 52, BUTTON, NORMAL, DPAD},
-    {"##left", PIXEL_FONT_UTF8_ARROW_LEFT, 32, 174, 52, 52, BUTTON, NORMAL, DPAD},
-    {"##right", PIXEL_FONT_UTF8_ARROW_RIGHT, 136, 174, 52, 52, BUTTON, NORMAL, DPAD},
-    {"##y", "Y", 650, 156, 52, 52, BUTTON, BIG, FACE},
-    {"##x", "X", 752, 108, 52, 52, BUTTON, BIG, FACE},
-    {"##b", "B", 650, 216, 64, 64, BUTTON, BIG, FACE},
-    {"##a", "A", 740, 170, 64, 64, BUTTON, BIG, FACE},
+    {"##l", "L", 16, 64, 160, 40, BUTTON, NORMAL, LSH},
+    {"##r", "R", 668, 64, 160, 40, BUTTON, NORMAL, RSH},
+    {"##dpad_center", "", 84, 204, 52, 52, BUTTON, NORMAL, DPAD},
+    {"##up", PIXEL_FONT_UTF8_ARROW_UP, 84, 152, 52, 52, BUTTON, NORMAL, DPAD},
+    {"##down", PIXEL_FONT_UTF8_ARROW_DOWN, 84, 256, 52, 52, BUTTON, NORMAL, DPAD},
+    {"##left", PIXEL_FONT_UTF8_ARROW_LEFT, 32, 204, 52, 52, BUTTON, NORMAL, DPAD},
+    {"##right", PIXEL_FONT_UTF8_ARROW_RIGHT, 136, 204, 52, 52, BUTTON, NORMAL, DPAD},
+    {"##x", "X", 680, 132, 64, 64, BUTTON, BIG, FACE},
+    {"##y", "Y", 612, 200, 64, 64, BUTTON, BIG, FACE},
+    {"##a", "A", 748, 200, 64, 64, BUTTON, BIG, FACE},
+    {"##b", "B", 680, 268, 64, 64, BUTTON, BIG, FACE},
     {"##select", "SELECT", 24, 334, 84, 40, BUTTON, NORMAL, CENTER},
     {"##start", "START", 116, 334, 84, 40, BUTTON, NORMAL, CENTER},
 };
@@ -135,7 +140,7 @@ void pad_layouts_init(PadLayouts* layouts)
     define(layouts, PadLayoutId::gamepad_portrait, "gamepad_portrait", GAMEPAD_PORTRAIT,
            static_cast<int32_t>(sizeof(GAMEPAD_PORTRAIT) / sizeof(GAMEPAD_PORTRAIT[0])), 390.0f, 844.0f, 1.0f);
     define(layouts, PadLayoutId::gamepad_landscape, "gamepad_landscape", GAMEPAD_LANDSCAPE,
-           static_cast<int32_t>(sizeof(GAMEPAD_LANDSCAPE) / sizeof(GAMEPAD_LANDSCAPE[0])), 844.0f, 390.0f, 1.0f);
+           static_cast<int32_t>(sizeof(GAMEPAD_LANDSCAPE) / sizeof(GAMEPAD_LANDSCAPE[0])), 780.0f, 390.0f, 1.0f);
     define(layouts, PadLayoutId::remote_below, "remote_below", REMOTE_BELOW,
            static_cast<int32_t>(sizeof(REMOTE_BELOW) / sizeof(REMOTE_BELOW[0])), 390.0f, 380.0f, 1.0f);
     define(layouts, PadLayoutId::remote_overlay_portrait, "remote_overlay_portrait", REMOTE_OVERLAY_PORTRAIT,

@@ -1,7 +1,8 @@
 #pragma once
 
 // The touch pad's parts (GAMEPAD, REMOTE PLAY): blocks like piccolo's pad
-// picture (retroui's pad_picture), lit yellow while held.
+// picture (retroui's pad_picture), lit yellow while held; a held stick's
+// nub follows the finger.
 //
 // A layout is a table of parts in the mockups' dp (a 390 x 844 portrait
 // phone, 844 x 390 landscape...), fitted to the real screen (PadFrame), plus
@@ -121,9 +122,10 @@ int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayou
 
 // One part at screen position (retro pixels), at `alpha`; `held` lit;
 // `overlay`: in the button color (over a picture) instead of the field color
-// (on the pad's body).
+// (on the pad's body). A stick's nub is drawn at (stick_x, stick_y), -1..1
+// from the middle.
 void pad_part_draw(const TouchUi* ui, const PadPart* part, float x, float y, float width, float height, float alpha, bool held,
-                   bool overlay);
+                   bool overlay, float stick_x, float stick_y);
 
 // A flat block (the pad's body, a bezel) in reference dp.
 void pad_block(const TouchUi* ui, const PadFrame* frame, float x, float y, float width, float height, uint32_t argb);
