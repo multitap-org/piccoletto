@@ -37,7 +37,7 @@ void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb);
 
 // The ping as three bars (Andrés): under 16 ms three green, under 48 ms two
 // yellow, else one red; all dim while connecting or offline. Then the ms
-// ("20 MS"), CONNECTING or OFFLINE. Returns the width.
+// ("20 MS"), "…" while connecting or OFFLINE. Returns the width.
 float title_bar_ping(const TouchUi* ui, float x, float y, LinkShown link, uint32_t ping_ms, uint32_t text_argb);
 float title_bar_ping_width(const TouchUi* ui, LinkShown link, uint32_t ping_ms);
 

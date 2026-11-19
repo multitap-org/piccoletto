@@ -123,7 +123,8 @@ static void ping_text(LinkShown link, uint32_t ping_ms, char* out, size_t capaci
     }
     else
     {
-        std::snprintf(out, capacity, "%s", link == LinkShown::connecting ? "CONNECTING" : "OFFLINE");
+        // (CONNECTING would run into SELECT on a landscape pad.)
+        std::snprintf(out, capacity, "%s", link == LinkShown::connecting ? "…" : "OFFLINE");
     }
 }
 
