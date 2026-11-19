@@ -2,7 +2,8 @@
 
 Working brief for Claude Code sessions in this repo. Read this first, then
 `STYLE.md` (mandatory for all code), then `docs/design-notes.md` (the design
-record; untracked, write notes there). What piccolo itself needs for
+record; untracked, write notes there) and `docs/pending.md` (what's left, the
+handoff from the first session). What piccolo itself needs for
 piccoletto (netcode, pairing, the network virtual device) is in piccolo's
 `docs/design-notes.md`. The mockups are at
 https://claude.ai/artifact/KrehctLfAefY3Dc7A2aPti.
