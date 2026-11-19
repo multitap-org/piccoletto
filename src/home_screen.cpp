@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstdio>
 
-#include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_ARROW_RIGHT
+#include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_ARROW_*
 #include "title_bar.h"
 
 // Layout, in retro pixels (half the mockups' dp).
@@ -28,6 +28,31 @@ static void draw_status(const TouchUi* ui, float x, float y, bool online, const 
     {
         touch_ui_text(ui, x + LAMP + 5.0f, y, word, palette->text_disabled, TouchText::normal);
     }
+}
+
+// "12.5" or "100": Mbit/s from kbit/s, a decimal under 10.
+static void format_mbps(uint32_t kbps, char* out, size_t capacity)
+{
+    if (kbps < 10000)
+    {
+        std::snprintf(out, capacity, "%u.%u", static_cast<unsigned>(kbps / 1000), static_cast<unsigned>((kbps % 1000) / 100));
+    }
+    else
+    {
+        std::snprintf(out, capacity, "%u", static_cast<unsigned>(kbps / 1000));
+    }
+}
+
+// The last speed test: ▼ down ▲ up, in Mbit/s.
+static void draw_bandwidth(const TouchUi* ui, const HomeHost* host, float x, float y)
+{
+    char down[16];
+    char up[16];
+    format_mbps(host->down_kbps, down, sizeof(down));
+    format_mbps(host->up_kbps, up, sizeof(up));
+    char text[64];
+    std::snprintf(text, sizeof(text), "%s %s MBPS   %s %s MBPS", PIXEL_FONT_UTF8_ARROW_DOWN, down, PIXEL_FONT_UTF8_ARROW_UP, up);
+    touch_ui_text(ui, x, y, text, ui->palette.text_disabled, TouchText::normal);
 }
 
 // The buttons a host's card has: only the modes this phone was granted.
@@ -66,6 +91,11 @@ static NavAction draw_card(const TouchUi* ui, const HomeHost* host, float x, flo
     if (host->playing[0] != '\0')
     {
         touch_ui_text(ui, inner_x, line, host->playing, palette->text_disabled, TouchText::normal);
+        line += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
+    }
+    if (host->down_kbps > 0 || host->up_kbps > 0)
+    {
+        draw_bandwidth(ui, host, inner_x, line);
     }
 
     if (!host->online)
@@ -115,6 +145,11 @@ static float card_height(const TouchUi* ui, const HomeHost* host)
 {
     float text = CARD_PADDING + touch_ui_text_height(ui, TouchText::normal) + 10.0f + touch_ui_text_height(ui, TouchText::big) +
                  6.0f + touch_ui_text_height(ui, TouchText::normal);
+    // The game and the bandwidth share that line's room; both: one more line.
+    if (host->playing[0] != '\0' && (host->down_kbps > 0 || host->up_kbps > 0))
+    {
+        text += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
+    }
     float buttons = host->online ? card_buttons_height(&host->access) : 0.0f;
     return text + 14.0f + buttons + CARD_PADDING;
 }

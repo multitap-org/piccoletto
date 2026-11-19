@@ -35,5 +35,11 @@ float title_bar_port_leds(const TouchUi* ui, float x, float y, int32_t port);
 // The pads' title: the host in the middle of the title bar's row.
 void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb);
 
+// The ping as three bars (Andrés): under 16 ms three green, under 48 ms two
+// yellow, else one red; all dim while connecting or offline. Then the ms
+// ("20 MS"), CONNECTING or OFFLINE. Returns the width.
+float title_bar_ping(const TouchUi* ui, float x, float y, LinkShown link, uint32_t ping_ms, uint32_t text_argb);
+float title_bar_ping_width(const TouchUi* ui, LinkShown link, uint32_t ping_ms);
+
 // The pads' status in the screen's bottom left corner: the port LEDs and the ping.
-void title_bar_pad_status(const TouchUi* ui, int32_t port, const char* latency, uint32_t text_argb);
+void title_bar_pad_status(const TouchUi* ui, int32_t port, LinkShown link, uint32_t ping_ms, uint32_t text_argb);

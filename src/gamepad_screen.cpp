@@ -16,8 +16,8 @@ static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* l
     return NavAction::none;
 }
 
-NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, const char* link, bool full_access,
-                              PadLayouts* layouts, PadEditor* editor)
+NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, LinkShown link, uint32_t ping_ms,
+                              bool full_access, PadLayouts* layouts, PadEditor* editor)
 {
     const RetroUiPalette* palette = &ui->palette;
     bool landscape = touch_ui_width(ui) > touch_ui_height(ui);
@@ -64,7 +64,7 @@ NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port,
             action = NavAction::home;
         }
         title_bar_host(ui, host, palette->text_highlight);
-        title_bar_pad_status(ui, port, link, palette->text_highlight);
+        title_bar_pad_status(ui, port, link, ping_ms, palette->text_highlight);
     }
     NavAction pad = draw_pad(ui, &frame, layout, editor, full_access);
     return pad != NavAction::none ? pad : action;

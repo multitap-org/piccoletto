@@ -27,6 +27,8 @@ struct HomeHost
     bool        online  = false;
     const char* playing = "";   // the game running there, "" if none
     HostAccess  access  = {};
+    uint32_t    down_kbps = 0;  // last speed test (0 = never measured)
+    uint32_t    up_kbps   = 0;
 };
 
 struct HomeScreen

@@ -106,10 +106,63 @@ void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb)
     touch_ui_text(ui, x, y, host, text_argb, TouchText::normal);
 }
 
-void title_bar_pad_status(const TouchUi* ui, int32_t port, const char* latency, uint32_t text_argb)
+constexpr uint32_t PING_GOOD  = TOUCH_UI_LAMP_ONLINE;   // green
+constexpr uint32_t PING_FAIR  = 0xFFFFC83Cu;            // yellow
+constexpr uint32_t PING_BAD   = 0xFFE84848u;            // red
+constexpr uint32_t PING_GOOD_MS = 16;
+constexpr uint32_t PING_FAIR_MS = 48;
+constexpr float    BAR_WIDTH  = 3.0f;
+constexpr float    BAR_GAP    = 1.0f;
+
+// The text after the bars.
+static void ping_text(LinkShown link, uint32_t ping_ms, char* out, size_t capacity)
+{
+    if (link == LinkShown::ready)
+    {
+        std::snprintf(out, capacity, "%u MS", static_cast<unsigned>(ping_ms));
+    }
+    else
+    {
+        std::snprintf(out, capacity, "%s", link == LinkShown::connecting ? "CONNECTING" : "OFFLINE");
+    }
+}
+
+constexpr float BARS_WIDTH = 3.0f * BAR_WIDTH + 2.0f * BAR_GAP + 5.0f;   // with the gap before the text
+
+float title_bar_ping_width(const TouchUi* ui, LinkShown link, uint32_t ping_ms)
+{
+    char text[24];
+    ping_text(link, ping_ms, text, sizeof(text));
+    return BARS_WIDTH + touch_ui_text_width(ui, text, TouchText::normal);
+}
+
+float title_bar_ping(const TouchUi* ui, float x, float y, LinkShown link, uint32_t ping_ms, uint32_t text_argb)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    int32_t lit = 0;
+    uint32_t color = palette->panel_dark;
+    if (link == LinkShown::ready)
+    {
+        lit = ping_ms < PING_GOOD_MS ? 3 : (ping_ms < PING_FAIR_MS ? 2 : 1);
+        color = ping_ms < PING_GOOD_MS ? PING_GOOD : (ping_ms < PING_FAIR_MS ? PING_FAIR : PING_BAD);
+    }
+    // Rising bars, bottoms level with the letters' (rows 2..6 of the cell).
+    float bottom = y + 7.0f;
+    for (int32_t i = 0; i < 3; i++)
+    {
+        float height = 3.0f + 2.0f * static_cast<float>(i);
+        touch_ui_rect(ui, x + static_cast<float>(i) * (BAR_WIDTH + BAR_GAP), bottom - height, BAR_WIDTH, height,
+                      i < lit ? color : palette->panel_dark);
+    }
+    char text[24];
+    ping_text(link, ping_ms, text, sizeof(text));
+    return BARS_WIDTH + touch_ui_text(ui, x + BARS_WIDTH, y, text, text_argb, TouchText::normal);
+}
+
+void title_bar_pad_status(const TouchUi* ui, int32_t port, LinkShown link, uint32_t ping_ms, uint32_t text_argb)
 {
     float x = TITLE_BAR_MARGIN;
     float y = touch_ui_height(ui) - TITLE_BAR_MARGIN - touch_ui_text_height(ui, TouchText::normal);
     x += title_bar_port_leds(ui, x, y, port) + 6.0f;
-    touch_ui_text(ui, x, y, latency, text_argb, TouchText::normal);
+    title_bar_ping(ui, x, y, link, ping_ms, text_argb);
 }

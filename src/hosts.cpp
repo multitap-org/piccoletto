@@ -23,6 +23,8 @@ constexpr uint32_t SPEED_RATE_COUNT = sizeof(SPEED_RATES_KBPS) / sizeof(SPEED_RA
 constexpr uint32_t SPEED_TEST_MS    = 1000;
 constexpr double   SPEED_MAX_LOSS   = 0.02;
 constexpr double   SPEED_REPORT_WAIT_SECONDS = 4.0;
+// The ping is read this often (Andrés: every 5 s, on both sides).
+constexpr double   STATS_SECONDS = 5.0;
 
 static std::string key_section(const uint8_t* key)
 {
@@ -321,6 +323,7 @@ static void speed_finish(Hosts* hosts)
         const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
         SDL_Log("Network: speed to %s: %.1f Mbit/s down, %.1f up", host->name.c_str(), host->down_kbps / 1000.0,
                 host->up_kbps / 1000.0);
+        hosts->known[static_cast<size_t>(hosts->linked)].measured = true;
         write_info(hosts, host);
     }
 }
@@ -500,9 +503,14 @@ void hosts_update(Hosts* hosts, double now)
                 break;
             }
             on_ready(hosts, &event, hosts->connecting_to);
-            if (hosts->link == LinkStatus::ready && hosts->speed_test_wanted && event.access != NetAccessLevel::gamepad)
+            if (hosts->link == LinkStatus::ready)
             {
-                speed_start(hosts);
+                hosts->next_stats = 0.0;   // the first ping right away
+                const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
+                if (event.access != NetAccessLevel::gamepad && !host->measured)
+                {
+                    speed_start(hosts);
+                }
             }
             break;
         case NetClientEventType::unpaired:
@@ -575,7 +583,15 @@ void hosts_update(Hosts* hosts, double now)
             hosts->refusal = NetClientRefusal::connection;
         }
     }
-    hosts->has_stats = hosts->link == LinkStatus::ready && net_client_stats(&hosts->client, &hosts->stats);
+    if (hosts->link != LinkStatus::ready)
+    {
+        hosts->has_stats = false;
+    }
+    else if (now >= hosts->next_stats)
+    {
+        hosts->next_stats = now + STATS_SECONDS;
+        hosts->has_stats = net_client_stats(&hosts->client, &hosts->stats);
+    }
     speed_update(hosts);
 }
 
@@ -624,7 +640,7 @@ bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
     return true;
 }
 
-bool hosts_connect(Hosts* hosts, int32_t index, bool speed_test)
+bool hosts_connect(Hosts* hosts, int32_t index)
 {
     if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
     {
@@ -632,13 +648,7 @@ bool hosts_connect(Hosts* hosts, int32_t index, bool speed_test)
     }
     if (hosts->link == LinkStatus::ready && hosts->linked == index)
     {
-        // Already connected (GAMEPAD to REMOTE PLAY): a test if one is wanted now.
-        if (speed_test && !hosts->speed.running && hosts->known[static_cast<size_t>(index)].access != NetAccessLevel::gamepad)
-        {
-            speed_start(hosts);
-        }
-        hosts->speed_test_wanted = speed_test;
-        return true;
+        return true;   // already connected (GAMEPAD to REMOTE PLAY)
     }
     if (hosts->pending_unpair >= 0)
     {
@@ -654,7 +664,6 @@ bool hosts_connect(Hosts* hosts, int32_t index, bool speed_test)
     }
     hosts->link = LinkStatus::connecting;
     hosts->linked = index;
-    hosts->speed_test_wanted = speed_test;
     hosts->refusal = NetClientRefusal::none;
     hosts->connecting_to = address;
     // The last connection may still be closing (HOME, then a mode right
@@ -718,20 +727,18 @@ void hosts_forget(Hosts* hosts, int32_t index)
     forget_here(hosts, index);
 }
 
-void hosts_link_text(const Hosts* hosts, char* out, size_t capacity)
+LinkShown hosts_link_shown(const Hosts* hosts, uint32_t* ping_ms)
 {
+    *ping_ms = hosts->stats.round_trip_ms;
     if (hosts->link == LinkStatus::ready && hosts->has_stats)
     {
-        std::snprintf(out, capacity, "%u MS", static_cast<unsigned>(hosts->stats.round_trip_ms));
+        return LinkShown::ready;
     }
-    else if (hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready)
+    if (hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready)
     {
-        std::snprintf(out, capacity, "CONNECTING");
+        return LinkShown::connecting;
     }
-    else
-    {
-        std::snprintf(out, capacity, "OFFLINE");
-    }
+    return LinkShown::offline;
 }
 
 bool hosts_parse_address(const char* text, NetAddress* address)

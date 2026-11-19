@@ -242,34 +242,34 @@ int main(int argc, char** argv)
         check(hosts->known[0].access == NetAccessLevel::gamepad, "new devices start at gamepad");
     }
 
-    // The host raises our level; connecting again (no code) brings it.
+    // Connecting again as a paired phone (no code), still at gamepad.
     for (int32_t i = 0; i < 20; i++)
     {
         pump_once(&pump);
     }
     check(access->trust.devices.size() == 1, "the host lists the phone");
-    if (access->trust.devices.size() == 1)
-    {
-        net_access_set_level(access, 0, NetAccessLevel::full);
-    }
-    check(hosts_connect(hosts, 0, false), "connect starts");
+    check(hosts_connect(hosts, 0), "connect starts");
     check(pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected as a paired phone");
-    check(!hosts->known.empty() && hosts->known[0].access == NetAccessLevel::full, "the host's level");
     for (int32_t i = 0; i < 20; i++)
     {
         pump_once(&pump);
     }
     check(hosts->has_stats, "the ping while connected");
-    char link[32];
-    hosts_link_text(hosts, link, sizeof(link));
-    check(std::strstr(link, "MS") != nullptr, "the status line says the ping");
+    uint32_t ping_ms = 0;
+    check(hosts_link_shown(hosts, &ping_ms) == LinkShown::ready, "the status shows the ping");
+    check(!hosts->speed.running && !hosts->known[0].measured, "no speed test at gamepad level");
     hosts_disconnect(hosts);
-    hosts_link_text(hosts, link, sizeof(link));
-    check(std::strcmp(link, "OFFLINE") == 0, "offline once left");
+    check(hosts_link_shown(hosts, &ping_ms) == LinkShown::offline, "offline once left");
 
-    // A speed test when connecting for REMOTE PLAY (STREAM access or more).
-    check(hosts_connect(hosts, 0, true), "connect with a speed test");
+    // The host raises our level: the next connection brings it, and runs the
+    // speed test (STREAM access or more, once per run).
+    if (access->trust.devices.size() == 1)
+    {
+        net_access_set_level(access, 0, NetAccessLevel::full);
+    }
+    check(hosts_connect(hosts, 0), "connect again");
     check(pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected again");
+    check(!hosts->known.empty() && hosts->known[0].access == NetAccessLevel::full, "the host's level");
     check(hosts->speed.running, "the speed test runs");
     end_wait(&pump, 20.0);
     check(!hosts->speed.running, "the speed test ends");
@@ -329,7 +329,7 @@ int main(int argc, char** argv)
     }
     check(hosts_pair(hosts, address, access->code) && pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired,
           "paired again");
-    check(hosts_connect(hosts, 0, false) && pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected");
+    check(hosts_connect(hosts, 0) && pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected");
     for (int32_t i = 0; i < 20; i++)
     {
         pump_once(&pump);

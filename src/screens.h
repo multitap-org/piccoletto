@@ -30,3 +30,11 @@ enum class Screen
 
 // "GAMEPAD" etc., for logs (English on purpose).
 const char* nav_action_name(NavAction action);
+
+// What the pads' status shows of the connection to the host.
+enum class LinkShown
+{
+    offline,
+    connecting,
+    ready,       // with a ping
+};
