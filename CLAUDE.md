@@ -1,10 +1,10 @@
 # CLAUDE.md — piccoletto
 
 Working brief for Claude Code sessions in this repo. Read this first, then
-`STYLE.md` (mandatory for all code). The design record lives in piccolo's
-`docs/design-notes.md` ("piccoletto, the companion app"), untracked, so only
-in piccolo's main checkout: `~/Seafile/Home/andre/dev/.repos/piccolo/docs/`
-(a worktree doesn't have it; read and write it there). The mockups are at
+`STYLE.md` (mandatory for all code), then `docs/design-notes.md` (the design
+record; untracked, write notes there). What piccolo itself needs for
+piccoletto (netcode, pairing, the network virtual device) is in piccolo's
+`docs/design-notes.md`. The mockups are at
 https://claude.ai/artifact/KrehctLfAefY3Dc7A2aPti.
 
 ## What this is
@@ -64,7 +64,7 @@ per commit; describe the plan before large work; third-party `deps/` are
 read-only; commit and push when a feature works (libraries first, then the
 pointers), big features on a branch until Andrés says to merge. Trailer:
 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-`CLAUDE.md` is committed; `docs/` stays untracked.
+`CLAUDE.md` is committed; `docs/` stays untracked (notes go to `docs/design-notes.md`).
 
 ## Layout
 
