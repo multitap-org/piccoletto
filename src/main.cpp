@@ -76,7 +76,12 @@ static const char* selected_host(const App* app)
 static void find_files(App* app)
 {
     std::string root;
-    if (!app_paths_xdg_root(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"), "piccoletto", &root))
+    bool found = false;
+#if !defined(SDL_PLATFORM_ANDROID)
+    // (Android apps may have a HOME that isn't theirs: only SDL's folder there.)
+    found = app_paths_xdg_root(std::getenv("XDG_DATA_HOME"), std::getenv("HOME"), "piccoletto", &root);
+#endif
+    if (!found)
     {
         char* pref = SDL_GetPrefPath("multitap", "piccoletto");
         if (pref == nullptr)
@@ -154,14 +159,25 @@ static void apply_settings(App* app)
     }
 }
 
-// Turns the screen: on the desktop, swaps the window's width and height.
-// (On a phone this will lock the orientation instead.)
+// Turns the screen. On the desktop it swaps the window's width and height.
+// On a phone the screen follows the phone by itself (unless the system's
+// rotation lock is on: SDL asks Android for "full user"); ROTATE locks it to
+// the other side, whatever the sensor and the system lock say, until the next
+// ROTATE. SDL only passes SDL_HINT_ORIENTATIONS on to Android when the
+// window's resizable flag changes, hence the toggle.
 static void rotate(App* app)
 {
     int width = 0;
     int height = 0;
     SDL_GetWindowSize(app->shell.window, &width, &height);
+#if defined(SDL_PLATFORM_ANDROID)
+    const char* other = (width > height) ? "Portrait" : "LandscapeLeft LandscapeRight";
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, other);
+    SDL_SetWindowResizable(app->shell.window, false);
+    SDL_SetWindowResizable(app->shell.window, true);
+#else
     SDL_SetWindowSize(app->shell.window, height, width);
+#endif
 }
 
 static void go_to(App* app, Screen screen)
@@ -430,6 +446,14 @@ int main(int argc, char** argv)
         return 1;
     }
     ImGui::GetIO().IniFilename = nullptr;   // no window layout to remember: every screen is full screen
+#if defined(SDL_PLATFORM_ANDROID)
+    // Full screen on a phone: SDL's activity hides the status and navigation
+    // bars (immersive) only for a fullscreen window.
+    if (!SDL_SetWindowFullscreen(app->shell.window, true))
+    {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "SDL_SetWindowFullscreen failed: %s", SDL_GetError());
+    }
+#endif
     find_files(app);
     load_files(app);
 

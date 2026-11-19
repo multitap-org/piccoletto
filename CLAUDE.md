@@ -91,6 +91,9 @@ src/remote_play_screen.* REMOTE PLAY: the picture as big as the stream's aspect 
                         portrait if it fits, else an overlay over the picture (landscape, DS)
 src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (placeholder devices)
 src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
+android/           the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
+                   cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
+                   AndroidManifest.xml (org.multitap.piccoletto, minSdk 28, targetSdk 35)
 tools/             lsan-suppressions.txt
 ```
 
@@ -111,7 +114,13 @@ cmake --build build && ctest --test-dir build
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_AS_ERRORS=ON -DMULTITAP_SANITIZE=ON
 cmake --build build-asan && (cd build-asan && LSAN_OPTIONS=suppressions=$PWD/../tools/lsan-suppressions.txt ctest)
 ./build/piccoletto        # a phone-shaped window; normal builds also copy it to ~/.local/share/piccoletto/
+android/build-apk.sh      # -> android/build/piccoletto.apk (adb install -r ...; adb logcat -s SDL)
 ```
+
+Android: SDL's SDLActivity (SDL3 has no NativeActivity path), arm64 only.
+The screen follows the phone (SDL's "full user", so the system rotation lock
+is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
+tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
 12 tests (the libraries'). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no

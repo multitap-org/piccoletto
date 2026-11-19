@@ -120,7 +120,7 @@ add_subdirectory(deps/common/retroui)
 # ---------------------------------------------------------------------------
 # piccoletto
 # ---------------------------------------------------------------------------
-add_executable(piccoletto
+set(PICCOLETTO_SOURCES
     src/main.cpp
     src/touch_ui.cpp
     src/home_screen.cpp
@@ -135,6 +135,18 @@ add_executable(piccoletto
     src/app_settings.cpp
     src/settings_screen.cpp
 )
+if(ANDROID)
+    # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):
+    # the same piccoletto as libmain.so, which SDL's Java activity loads and
+    # whose SDL_main (main.cpp's main, renamed by SDL_main.h) it calls.
+    add_library(piccoletto SHARED ${PICCOLETTO_SOURCES})
+    set_target_properties(piccoletto PROPERTIES
+        OUTPUT_NAME "main"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")   # where build-apk.sh picks it up
+    target_link_libraries(piccoletto PRIVATE android log)
+else()
+    add_executable(piccoletto ${PICCOLETTO_SOURCES})
+endif()
 target_link_libraries(piccoletto PRIVATE frontend_common retroui)
 
 set(PICCOLETTO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -145,4 +157,6 @@ target_include_directories(piccoletto PRIVATE "${PICCOLETTO_GENERATED}")
 message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 
 multitap_set_project_flags(piccoletto)
-multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
+if(NOT ANDROID)
+    multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
+endif()
