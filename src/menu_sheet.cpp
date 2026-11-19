@@ -19,6 +19,9 @@ const char* nav_action_name(NavAction action)
         case NavAction::gamepad:     return "GAMEPAD";
         case NavAction::remote_play: return "REMOTE PLAY";
         case NavAction::devices:     return "DEVICES";
+        case NavAction::edit_layout: return "EDIT LAYOUT";
+        case NavAction::edit_done:   return "EDIT LAYOUT DONE";
+        case NavAction::settings:    return "SETTINGS";
         default:                     return "?";
     }
 }
@@ -33,7 +36,7 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current)
     // first, then the sheet's and the outside's areas (drawn before them).
     touch_ui_rect(ui, 0.0f, 0.0f, width, height, DIM);
 
-    const int32_t button_count = 3;
+    const int32_t button_count = 4;
     float sheet_height = 2.0f * SHEET_PADDING + button_count * SHEET_BUTTON + (button_count - 1) * SHEET_GAP;
     float sheet_width = SHEET_WIDTH < width - 16.0f ? SHEET_WIDTH : width - 16.0f;
     float x = (width - sheet_width) * 0.5f;
@@ -49,6 +52,12 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current)
                         TouchText::normal))
     {
         picked = in_remote_play ? NavAction::gamepad : NavAction::remote_play;
+    }
+    button_y += SHEET_BUTTON + SHEET_GAP;
+    if (touch_ui_button(ui, "##sheet_edit", button_x, button_y, button_width, SHEET_BUTTON, "EDIT LAYOUT", TouchButton::normal,
+                        TouchText::normal))
+    {
+        picked = NavAction::edit_layout;
     }
     button_y += SHEET_BUTTON + SHEET_GAP;
     if (touch_ui_button(ui, "##sheet_rotate", button_x, button_y, button_width, SHEET_BUTTON, "ROTATE", TouchButton::normal,

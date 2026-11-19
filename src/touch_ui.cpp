@@ -224,3 +224,13 @@ void touch_ui_lamp(const TouchUi* ui, float x, float y, uint32_t argb)
 {
     touch_ui_rect(ui, x, y + 2.0f, TOUCH_UI_LAMP, TOUCH_UI_LAMP, argb);
 }
+
+void touch_ui_push_clip(const TouchUi* ui, float x, float y, float width, float height)
+{
+    ImGui::PushClipRect(ImVec2(px(ui, x), px(ui, y)), ImVec2(px(ui, x + width), px(ui, y + height)), true);
+}
+
+void touch_ui_pop_clip()
+{
+    ImGui::PopClipRect();
+}

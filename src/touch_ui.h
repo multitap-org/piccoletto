@@ -86,3 +86,8 @@ void touch_ui_lamp(const TouchUi* ui, float x, float y, uint32_t argb);
 
 // Where text of `size` goes to look centered in a box `height` tall at `y`.
 float touch_ui_centered_text_y(const TouchUi* ui, float y, float height, TouchText size);
+
+// Only what's inside (x, y, width, height) is drawn and takes taps until the
+// pop (a scrolling list under a fixed header).
+void touch_ui_push_clip(const TouchUi* ui, float x, float y, float width, float height);
+void touch_ui_pop_clip();

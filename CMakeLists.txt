@@ -130,6 +130,10 @@ add_executable(piccoletto
     src/remote_play_screen.cpp
     src/pair_screen.cpp
     src/devices_screen.cpp
+    src/pad_layouts.cpp
+    src/pad_editor.cpp
+    src/app_settings.cpp
+    src/settings_screen.cpp
 )
 target_link_libraries(piccoletto PRIVATE frontend_common retroui)
 

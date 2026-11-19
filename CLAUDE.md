@@ -68,18 +68,26 @@ pointers), big features on a branch until Andrés says to merge. Trailer:
 
 ```
 CMakeLists.txt     options, SDL, Vulkan, imgui, the libraries, piccoletto
-src/main.cpp            the app: window, theme, screens (NavAction), the ☰ sheet, ROTATE, back key;
-                        --screen home|pair|gamepad|remote_play|devices, --landscape for testing
+src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts.cfg), screens (NavAction),
+                        the ☰ sheet, ROTATE, back key; for testing: --screen home|pair|gamepad|remote_play|
+                        devices|settings, --landscape, --aspect W:H (the stream's shape), --edit
 src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
                         buttons (normal, primary, ghost, card, plain, field)
 src/screens.h           Screen, NavAction (what a tap asks for)
 src/home_screen.*       HOME: card of the selected host with its granted modes, other hosts as rows, PAIR A DEVICE
 src/pair_screen.*       PAIR: pick a found host (or an address), 6-digit code, keypad
-src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held) as dp tables, fitted to the screen
+src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held) in groups, as dp tables fitted
+                        to the screen; the user's moves / sizes / alpha per group, saved
+src/pad_layouts.*       every layout's defaults: GAMEPAD portrait / landscape, REMOTE PLAY below the picture,
+                        overlay portrait (tall pictures: DS), overlay landscape
+src/pad_editor.*        EDIT LAYOUT: drag groups, SIZE, OPACITY, SNAP (8 dp), RESET, DONE
+src/app_settings.*      piccoletto.cfg: phone name, theme, language, vibrate, overlay opacity, quality
+src/settings_screen.*   SETTINGS (HOME's ☰), drag to scroll
 src/gamepad_screen.*    GAMEPAD: portrait (header + pad) and landscape (the pad picture's shape)
-src/remote_play_screen.* REMOTE PLAY: bezel flush with the edges, 8:7 picture placeholder, controls
+src/remote_play_screen.* REMOTE PLAY: the picture as big as the stream's aspect allows; the pad under it in
+                        portrait if it fits, else an overlay over the picture (landscape, DS)
 src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (placeholder devices)
-src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, ROTATE, LEAVE
+src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
 tools/             lsan-suppressions.txt
 ```
 
@@ -105,7 +113,10 @@ ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
   ROTATE (swaps the window's sides; on a phone it will lock the orientation),
   back = Escape / Android's back. Nothing goes over the network yet; pad parts
   light with one pointer (the mouse), multi-touch comes with the input.
-- Not yet: EDIT LAYOUT (moving the pad's buttons), HOME's ☰ (settings, theme).
+- EDIT LAYOUT on every pad layout; REMOTE PLAY fits any aspect (overlay when the
+  pad doesn't fit); SETTINGS (theme applies at once; language is stored, no
+  translations yet; FORGET only logs).
+- Not yet: pinch to resize, opacity / quality while streaming, translations.
 - Next: Android build (piccolo's `android` branch has the SDL setup; Andrés
   asked for NativeActivity, but SDL3 on Android runs through its SDLActivity:
   to settle), the GAMEPAD screen, pairing (needs the piccolo side), then

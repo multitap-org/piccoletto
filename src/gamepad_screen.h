@@ -2,13 +2,17 @@
 
 // GAMEPAD: the phone as a controller for the host. piccolo's pad picture at
 // phone size: portrait = a header line and the pad below; landscape = the
-// pad picture's own shape (shoulders on top, the body below).
+// pad picture's own shape (shoulders on top, the body below). The pad's
+// groups can be moved and resized (EDIT LAYOUT).
 // Not sending anything yet (no networking).
 
 #include <cstdint>
 
+#include "pad_editor.h"
+#include "pad_layouts.h"
 #include "screens.h"
 #include "touch_ui.h"
 
-// `host`: its name; `port`: 1-based, as shown.
-NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port);
+// `host`: its name; `port`: 1-based, as shown. While editor->active the
+// current layout is edited instead of played (NavAction::edit_done at DONE).
+NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, PadLayouts* layouts, PadEditor* editor);

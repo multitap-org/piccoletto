@@ -1,7 +1,7 @@
 #pragma once
 
-// The ☰ sheet over GAMEPAD and REMOTE PLAY: switch between the two, rotate,
-// leave to HOME. The screen behind is dimmed and doesn't take taps.
+// The ☰ sheet over GAMEPAD and REMOTE PLAY: switch between the two, EDIT
+// LAYOUT, rotate, leave to HOME. The screen behind is dimmed and doesn't take taps.
 
 #include "screens.h"
 #include "touch_ui.h"

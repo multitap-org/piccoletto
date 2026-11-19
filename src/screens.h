@@ -12,6 +12,9 @@ enum class NavAction
     gamepad,
     remote_play,
     devices,
+    edit_layout,   // EDIT LAYOUT on the current pad
+    edit_done,     // EDIT LAYOUT's DONE: save the layouts
+    settings,
 };
 
 enum class Screen
@@ -21,6 +24,7 @@ enum class Screen
     gamepad,
     remote_play,
     devices,
+    settings,
 };
 
 // "GAMEPAD" etc., for logs (English on purpose).
