@@ -2,7 +2,9 @@
 
 Working brief for Claude Code sessions in this repo. Read this first, then
 `STYLE.md` (mandatory for all code). The design record lives in piccolo's
-`docs/design-notes.md` ("piccoletto, the companion app"); the mockups are at
+`docs/design-notes.md` ("piccoletto, the companion app"), untracked, so only
+in piccolo's main checkout: `~/Seafile/Home/andre/dev/.repos/piccolo/docs/`
+(a worktree doesn't have it; read and write it there). The mockups are at
 https://claude.ai/artifact/KrehctLfAefY3Dc7A2aPti.
 
 ## What this is
@@ -93,6 +95,14 @@ tools/             lsan-suppressions.txt
 
 ## Build, run, check
 
+In a fresh clone or a new worktree the submodules are empty; then put the
+three libraries on `main` (they're edited in place):
+
+```sh
+git submodule update --init --recursive
+for d in deps/common/hosts-common deps/common/frontends-common deps/common/retroui; do git -C $d checkout main; done
+```
+
 ```sh
 git clone --recursive https://github.com/multitap-org/piccoletto.git
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_AS_ERRORS=ON
@@ -117,6 +127,10 @@ ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
   pad doesn't fit); SETTINGS (theme applies at once; language is stored, no
   translations yet; FORGET only logs).
 - Not yet: pinch to resize, opacity / quality while streaming, translations.
+- Branch `screens` (every screen, EDIT LAYOUT, SETTINGS) waits for Andrés to
+  try it before merging to main.
+- Never switch branches in a checkout another session may be using (piccolo's
+  main folder): use a worktree.
 - Next: Android build (piccolo's `android` branch has the SDL setup; Andrés
   asked for NativeActivity, but SDL3 on Android runs through its SDLActivity:
   to settle), the GAMEPAD screen, pairing (needs the piccolo side), then
