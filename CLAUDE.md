@@ -127,8 +127,7 @@ ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
   pad doesn't fit); SETTINGS (theme applies at once; language is stored, no
   translations yet; FORGET only logs).
 - Not yet: pinch to resize, opacity / quality while streaming, translations.
-- Branch `screens` (every screen, EDIT LAYOUT, SETTINGS) waits for Andrés to
-  try it before merging to main.
+- Every screen, EDIT LAYOUT and SETTINGS are on main (merged 2026-11-19).
 - Never switch branches in a checkout another session may be using (piccolo's
   main folder): use a worktree.
 - Next: Android build (piccolo's `android` branch has the SDL setup; Andrés
