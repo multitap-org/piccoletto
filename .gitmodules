@@ -22,3 +22,9 @@
 	path = deps/common/retroui
 	url = https://github.com/multitap-org/retroui.git
 	branch = main
+[submodule "deps/enet"]
+	path = deps/enet
+	url = https://github.com/lsalzman/enet.git
+[submodule "deps/monocypher"]
+	path = deps/monocypher
+	url = https://github.com/LoupVaillant/Monocypher.git

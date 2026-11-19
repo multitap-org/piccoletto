@@ -45,9 +45,9 @@ phone), see `src/touch_ui.h`.
 piccoletto builds on its own: every dependency is a submodule in `deps/`.
 
 - `deps/common/hosts-common`      CMake helpers (`cmake/multitap.cmake`), host_fs, logging
-- `deps/common/frontends-common`  window, Vulkan, swapchain, ImGui glue (app_shell), settings, input
+- `deps/common/frontends-common`  window, Vulkan, swapchain, ImGui glue (app_shell), settings, input, netcode (frontend_net)
 - `deps/common/retroui`           pixel font, themes, themed ImGui widgets, pad picture (shared with piccolo)
-- third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode` (frontends-common needs them)
+- third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode`, `deps/enet`, `deps/monocypher` (frontends-common needs them)
 
 **Sharing with piccolo:** what both need is moved out of piccolo into a
 library, never copied: the look into retroui, frontend plumbing into
@@ -133,7 +133,7 @@ The screen follows the phone (SDL's "full user", so the system rotation lock
 is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
 tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
-12 tests (the libraries'). Before calling a larger change done: warnings as
+17 tests (the libraries', netcode included). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no
 ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 
