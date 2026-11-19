@@ -1,8 +1,11 @@
 #include "pair_screen.h"
 
+#include <cmath>
 #include <cstdio>
 
-#include "pixel_font_imgui.h"
+#include "imgui.h"
+
+#include "pixel_font_imgui.h"   // also PIXEL_FONT_IMGUI_UNIT
 
 // Layout, in retro pixels (half the mockups' dp).
 constexpr float MARGIN        = 8.0f;
@@ -19,6 +22,29 @@ void pair_screen_reset(PairScreen* pair)
 {
     pair->length = 0;
     pair->code[0] = '\0';
+}
+
+// The address field: an ImGui text field in the screen's colors, like
+// SETTINGS' name field; the keyboard comes up on a phone.
+static void address_field(PairScreen* pair, const TouchUi* ui, float x, float y, float width)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    touch_ui_rect(ui, x, y, width, ROW_HEIGHT, palette->field_face);
+    float scale = static_cast<float>(ui->scale);
+    float text_y = touch_ui_centered_text_y(ui, y, ROW_HEIGHT, TouchText::normal);
+    ImGui::SetCursorScreenPos(ImVec2(std::floor((x + 10.0f) * scale), std::floor(text_y * scale)));
+    ImGui::PushFont(ui->font, PIXEL_FONT_IMGUI_UNIT * scale);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::SetNextItemWidth(std::floor((width - 20.0f) * scale));
+    ImGui::InputTextWithHint("##pair_address", "192.168.1.20", pair->address, sizeof(pair->address),
+                             ImGuiInputTextFlags_CharsNoBlank);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(3);
+    ImGui::PopFont();
 }
 
 // The outline of the picked row: the highlight color, inside its edges.
@@ -46,6 +72,7 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
         if (touch_ui_button(ui, id, x, y, width, ROW_HEIGHT, nullptr, TouchButton::card, TouchText::normal))
         {
             pair->selected = i;
+            pair->typing_address = false;
         }
         float text_y = touch_ui_centered_text_y(ui, y, ROW_HEIGHT, TouchText::normal);
         touch_ui_lamp(ui, x + 10.0f, text_y, TOUCH_UI_LAMP_ONLINE);
@@ -53,29 +80,36 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
         const char* tag = "NEW";
         touch_ui_text(ui, x + width - 10.0f - touch_ui_text_width(ui, tag, TouchText::normal), text_y, tag,
                       palette->text_disabled, TouchText::normal);
-        if (i == pair->selected)
+        if (i == pair->selected && !pair->typing_address)
         {
             draw_outline(ui, x, y, width, ROW_HEIGHT);
         }
         y += ROW_HEIGHT + GAP;
     }
-    if (found_count == 0)
+    if (found_count == 0 && !pair->typing_address)
     {
         touch_ui_text(ui, x + 4.0f, y + 4.0f, "SEARCHING…", palette->text_disabled, TouchText::normal);
         y += 16.0f;
+    }
+    if (pair->typing_address)
+    {
+        address_field(pair, ui, x, y, width);
+        draw_outline(ui, x, y, width, ROW_HEIGHT);
+        return y + ROW_HEIGHT + GAP;
     }
     char address_label[48];
     std::snprintf(address_label, sizeof(address_label), "OR TYPE AN ADDRESS %s", PIXEL_FONT_UTF8_ARROW_RIGHT);
     float address_width = touch_ui_text_width(ui, address_label, TouchText::normal) + 8.0f;
     if (touch_ui_button(ui, "##address", x, y, address_width, 24.0f, address_label, TouchButton::plain, TouchText::normal))
     {
-        // Typing an address comes with networking.
+        pair->typing_address = true;
     }
     return y + 24.0f;
 }
 
-// Step 2: the code so far, one box per digit, the next one underlined.
-static void draw_code(const PairScreen* pair, const TouchUi* ui, float x, float y, float width)
+// Step 2: the code so far, one box per digit, the next one underlined; how
+// the pairing goes under it.
+static void draw_code(const PairScreen* pair, const TouchUi* ui, const PairProgress* progress, float x, float y, float width)
 {
     const RetroUiPalette* palette = &ui->palette;
     touch_ui_text(ui, x + 4.0f, y, "2 · TYPE THE CODE ON ITS SCREEN", palette->text_disabled, TouchText::normal);
@@ -98,15 +132,22 @@ static void draw_code(const PairScreen* pair, const TouchUi* ui, float x, float 
                           digit, palette->text_highlight, TouchText::big);
         }
     }
+    if (progress->text[0] != '\0')
+    {
+        touch_ui_text(ui, x + 4.0f, y + CODE_HEIGHT + 6.0f, progress->text, progress->error ? palette->highlight : palette->text,
+                      TouchText::normal);
+    }
 }
 
 // The keypad, 3 x 4 keys filling (x, y, width, height). True when OK is
 // tapped with a host and the whole code.
-static bool draw_keypad(PairScreen* pair, const TouchUi* ui, int32_t found_count, float x, float y, float width, float height)
+static bool draw_keypad(PairScreen* pair, const TouchUi* ui, int32_t found_count, bool busy, float x, float y, float width,
+                        float height)
 {
     float key_width = (width - 2.0f * GAP) / 3.0f;
     float key_height = (height - 3.0f * GAP) / 4.0f;
-    bool complete = pair->length == PAIR_CODE_LENGTH && found_count > 0;
+    bool has_host = pair->typing_address ? pair->address[0] != '\0' : found_count > 0;
+    bool complete = pair->length == PAIR_CODE_LENGTH && has_host && !busy;
     bool done = false;
     for (int32_t key = 0; key < 12; key++)
     {
@@ -116,7 +157,7 @@ static bool draw_keypad(PairScreen* pair, const TouchUi* ui, int32_t found_count
         std::snprintf(id, sizeof(id), "##key%d", static_cast<int>(key));
         bool ok = key == 11;
         TouchButton style = ok && complete ? TouchButton::primary : TouchButton::normal;
-        if (!touch_ui_button(ui, id, key_x, key_y, key_width, key_height, KEYS[key], style, TouchText::big))
+        if (!touch_ui_button(ui, id, key_x, key_y, key_width, key_height, KEYS[key], style, TouchText::big) || busy)
         {
             continue;
         }
@@ -142,7 +183,8 @@ static bool draw_keypad(PairScreen* pair, const TouchUi* ui, int32_t found_count
     return done;
 }
 
-NavAction pair_screen_draw(PairScreen* pair, const TouchUi* ui, const char* const* found, int32_t found_count, bool* done)
+NavAction pair_screen_draw(PairScreen* pair, const TouchUi* ui, const char* const* found, int32_t found_count,
+                           const PairProgress* progress, bool* done)
 {
     float width = touch_ui_width(ui);
     float height = touch_ui_height(ui);
@@ -173,16 +215,16 @@ NavAction pair_screen_draw(PairScreen* pair, const TouchUi* ui, const char* cons
     {
         float column = (width - 3.0f * MARGIN) * 0.5f;
         float y = draw_pick(pair, ui, found, found_count, MARGIN, content_y, column);
-        draw_code(pair, ui, MARGIN, y + 8.0f, column);
+        draw_code(pair, ui, progress, MARGIN, y + 8.0f, column);
         float keypad_x = MARGIN + column + MARGIN;
-        *done = draw_keypad(pair, ui, found_count, keypad_x, content_y, column, height - content_y - MARGIN);
+        *done = draw_keypad(pair, ui, found_count, progress->busy, keypad_x, content_y, column, height - content_y - MARGIN);
         return action;
     }
 
     float column = width - 2.0f * MARGIN;
     float y = draw_pick(pair, ui, found, found_count, MARGIN, content_y, column);
-    draw_code(pair, ui, MARGIN, y + 16.0f, column);
+    draw_code(pair, ui, progress, MARGIN, y + 16.0f, column);
     float keypad_height = 4.0f * KEY_HEIGHT + 3.0f * GAP;
-    *done = draw_keypad(pair, ui, found_count, MARGIN, height - 12.0f - keypad_height, column, keypad_height);
+    *done = draw_keypad(pair, ui, found_count, progress->busy, MARGIN, height - 12.0f - keypad_height, column, keypad_height);
     return action;
 }

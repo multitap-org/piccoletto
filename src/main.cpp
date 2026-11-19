@@ -16,6 +16,7 @@
 #include "gamepad_screen.h"
 #include "haptics.h"
 #include "home_screen.h"
+#include "hosts.h"
 #include "host_fs.h"
 #include "menu_sheet.h"
 #include "pad_editor.h"
@@ -33,18 +34,7 @@
 #include "touch_fingers.h"
 #include "touch_ui.h"
 
-// Placeholder hosts until pairing exists: what HOME looks like with a few
-// (the mockups' examples). Access is what each host would have granted.
-static const HomeHost PLACEHOLDER_HOSTS[] = {
-    {"LIVING ROOM PC", true, "SUPER METROID", {true, true, true}},
-    {"ARM BOARD", true, "", {true, false, false}},
-    {"LAPTOP", false, "", {true, true, false}},
-};
-constexpr int32_t PLACEHOLDER_HOST_COUNT = static_cast<int32_t>(sizeof(PLACEHOLDER_HOSTS) / sizeof(PLACEHOLDER_HOSTS[0]));
-static const char* const PLACEHOLDER_HOST_NAMES[] = {"LIVING ROOM PC", "ARM BOARD", "LAPTOP"};
-// Unpaired hosts "found on the network".
-static const char* const PLACEHOLDER_FOUND[] = {"BEDROOM PC", "HANDHELD PC"};
-constexpr int32_t PLACEHOLDER_FOUND_COUNT = static_cast<int32_t>(sizeof(PLACEHOLDER_FOUND) / sizeof(PLACEHOLDER_FOUND[0]));
+// The port this phone's pad plays on: from the host's controllers message, later.
 constexpr int32_t PLACEHOLDER_PORT = 1;
 
 struct App
@@ -65,6 +55,8 @@ struct App
     Haptics        haptics    = {};   // VIBRATE ON PRESS
     RealGamepad    gamepad    = {};   // gamepads connected to the phone
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
+    Hosts          hosts;             // the paired hosts, discovery, pairing, the connection
+    std::string    settings_dir;      // settings/ ("" = nothing is saved)
     std::string    settings_path;     // settings/piccoletto.cfg ("" = nothing is saved)
     std::string    layouts_path;      // settings/layouts.cfg
     SettingsFile   settings_file;
@@ -72,17 +64,48 @@ struct App
     bool           running    = false;
 };
 
-static const char* selected_host(const App* app)
+constexpr int32_t MAX_SHOWN_HOSTS = 32;   // HOME and SETTINGS list at most this many
+
+static const KnownHost* selected_known(const App* app)
 {
-    return PLACEHOLDER_HOSTS[app->home.selected].name;
+    int32_t index = app->home.selected;
+    if (index < 0 || index >= static_cast<int32_t>(app->hosts.known.size()))
+    {
+        return nullptr;
+    }
+    return &app->hosts.known[static_cast<size_t>(index)];
 }
 
-// Full access: the host granted this phone every mode (for now the HOTKEY
-// button; the access levels are still to be defined).
+static const char* selected_host(const App* app)
+{
+    const KnownHost* host = selected_known(app);
+    return host != nullptr ? host->name.c_str() : "";
+}
+
+// Full access: the host granted this phone everything (the HOTKEY button).
 static bool selected_full_access(const App* app)
 {
-    const HostAccess* access = &PLACEHOLDER_HOSTS[app->home.selected].access;
-    return access->gamepad && access->remote_play && access->devices;
+    const KnownHost* host = selected_known(app);
+    return host != nullptr && host->access == NetAccessLevel::full;
+}
+
+// HOME's view of the paired hosts: the modes each access level opens.
+static int32_t home_hosts(const App* app, HomeHost* out)
+{
+    int32_t count = 0;
+    for (size_t i = 0; i < app->hosts.known.size() && count < MAX_SHOWN_HOSTS; i++)
+    {
+        const KnownHost* host = &app->hosts.known[i];
+        HomeHost* shown = &out[count];
+        *shown = HomeHost{};
+        shown->name = host->name.c_str();
+        shown->online = host->online;
+        shown->access.gamepad = true;
+        shown->access.remote_play = host->access != NetAccessLevel::gamepad;
+        shown->access.devices = host->access == NetAccessLevel::full;
+        count++;
+    }
+    return count;
 }
 
 // piccoletto's folder, like piccolo's (frontends-common's app_paths.h):
@@ -113,6 +136,7 @@ static void find_files(App* app)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Can't create %s: nothing will be saved", settings.c_str());
         return;
     }
+    app->settings_dir = settings;
     app->settings_path = settings + "/piccoletto.cfg";
     app->layouts_path = settings + "/layouts.cfg";
 }
@@ -200,6 +224,21 @@ static void go_to(App* app, Screen screen)
     if (app->screen == Screen::settings && screen != Screen::settings)
     {
         save_settings(app);
+        hosts_set_name(&app->hosts, app->settings.phone_name);
+    }
+    if (app->screen == Screen::pair && screen != Screen::pair)
+    {
+        hosts_cancel(&app->hosts);   // leaving PAIR stops a pairing that's still running
+    }
+    // The modes talk to the selected host: connected while one is open.
+    bool mode = screen == Screen::gamepad || screen == Screen::remote_play || screen == Screen::devices;
+    if (mode)
+    {
+        hosts_connect(&app->hosts, app->home.selected);
+    }
+    else if (screen != app->screen)
+    {
+        hosts_disconnect(&app->hosts);
     }
     if (app->editor.active)
     {
@@ -318,10 +357,67 @@ static void handle_events(App* app)
     }
 }
 
+// PAIR: the unpaired hosts found, the code, how pairing goes. When it's
+// done, HOME with the new host on the card.
+static NavAction draw_pair(App* app)
+{
+    Hosts* hosts = &app->hosts;
+    const char* found[HOSTS_MAX_FOUND];
+    int32_t found_count = hosts_unpaired_count(hosts);
+    for (int32_t i = 0; i < found_count; i++)
+    {
+        found[i] = hosts_unpaired(hosts, i)->name;
+    }
+    PairProgress progress;
+    if (!hosts->ok)
+    {
+        progress.text = "NO NETWORK";
+        progress.error = true;
+    }
+    else if (hosts->pair == PairStatus::busy)
+    {
+        progress.busy = true;
+        NetClientState state = hosts->client.state;
+        progress.text = state == NetClientState::connecting || state == NetClientState::waiting ? "CONNECTING…" : "CHECKING THE CODE…";
+    }
+    else if (hosts->pair == PairStatus::failed)
+    {
+        progress.text = hosts_refusal_text(hosts->refusal);
+        progress.error = true;
+    }
+    bool done = false;
+    NavAction action = pair_screen_draw(&app->pair, &app->ui, found, found_count, &progress, &done);
+    if (done)
+    {
+        NetAddress address;
+        bool have = false;
+        if (app->pair.typing_address)
+        {
+            have = hosts_parse_address(app->pair.address, &address);
+        }
+        else if (app->pair.selected < found_count)
+        {
+            address = hosts_unpaired(hosts, app->pair.selected)->address;
+            have = true;
+        }
+        if (!have || !hosts_pair(hosts, address, app->pair.code))
+        {
+            hosts->pair = PairStatus::failed;
+            hosts->refusal = NetClientRefusal::connection;
+        }
+    }
+    if (hosts->pair == PairStatus::paired)
+    {
+        app->home.selected = hosts->paired_index;
+        hosts->pair = PairStatus::idle;
+        action = NavAction::home;
+    }
+    return action;
+}
+
 static void draw_screen(App* app)
 {
     NavAction action = NavAction::none;
-    bool done = false;
     int32_t forget = -1;
     // The pads take fingers only while nothing covers them.
     bool covered = app->sheet_open || (app->screen == Screen::home && app->home.sidebar_open);
@@ -330,20 +426,16 @@ static void draw_screen(App* app)
     // REMOTE PLAY: the touch controls hide while a real gamepad is connected (unless shown from the sheet).
     bool gamepad_connected = real_gamepad_connected(&app->gamepad);
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
+    HomeHost shown[MAX_SHOWN_HOSTS];
+    int32_t shown_count = home_hosts(app, shown);
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
     {
         case Screen::home:
-            action = home_screen_draw(&app->home, &app->ui, PLACEHOLDER_HOSTS, PLACEHOLDER_HOST_COUNT, PLACEHOLDER_FOUND_COUNT);
+            action = home_screen_draw(&app->home, &app->ui, shown, shown_count, hosts_unpaired_count(&app->hosts));
             break;
         case Screen::pair:
-            action = pair_screen_draw(&app->pair, &app->ui, PLACEHOLDER_FOUND, PLACEHOLDER_FOUND_COUNT, &done);
-            if (done)
-            {
-                // The request goes to the host with networking.
-                SDL_Log("PAIR: %s with code %s", PLACEHOLDER_FOUND[app->pair.selected], app->pair.code);
-                action = NavAction::home;
-            }
+            action = draw_pair(app);
             break;
         case Screen::gamepad:
             action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), &app->layouts,
@@ -357,21 +449,29 @@ static void draw_screen(App* app)
             action = devices_screen_draw(&app->devices, &app->ui, selected_host(app));
             break;
         case Screen::settings:
-            action = settings_screen_draw(&app->settings_screen, &app->ui, &app->settings, PICCOLETTO_VERSION,
-                                          PLACEHOLDER_HOST_NAMES, PLACEHOLDER_HOST_COUNT, &forget);
+        {
+            const char* names[MAX_SHOWN_HOSTS];
+            for (int32_t i = 0; i < shown_count; i++)
+            {
+                names[i] = shown[i].name;
+            }
+            action = settings_screen_draw(&app->settings_screen, &app->ui, &app->settings, PICCOLETTO_VERSION, names, shown_count,
+                                          &forget);
             if (forget >= 0)
             {
-                // Forgetting tells the host too, with networking.
-                SDL_Log("FORGET: %s", PLACEHOLDER_HOST_NAMES[forget]);
+                SDL_Log("FORGET: %s", names[forget]);
+                hosts_forget(&app->hosts, forget);
+                app->home.selected = 0;
             }
             break;
+        }
     }
     touch_ui_end_screen();
     // HOME's sidebar (landscape) the same way, above HOME.
     if (app->screen == Screen::home && app->home.sidebar_open)
     {
         touch_ui_begin_overlay(&app->ui, "##sidebar_window");
-        home_sidebar_draw(&app->home, &app->ui, PLACEHOLDER_HOSTS, PLACEHOLDER_HOST_COUNT);
+        home_sidebar_draw(&app->home, &app->ui, shown, shown_count);
         touch_ui_end_screen();
     }
     // The sheet in its own window above the screen: the screen behind takes no taps.
@@ -498,6 +598,10 @@ int main(int argc, char** argv)
 #endif
     find_files(app);
     load_files(app);
+    if (!app->settings_dir.empty())
+    {
+        hosts_create(&app->hosts, app->settings_dir.c_str(), app->settings.phone_name);
+    }
     haptics_open(&app->haptics);
 
     go_to(app, first);
@@ -514,6 +618,7 @@ int main(int argc, char** argv)
         app->ui.scale = touch_ui_scale_for(io.DisplaySize.x, io.DisplaySize.y);
         apply_settings(app);
         real_gamepad_update(&app->gamepad);
+        hosts_update(&app->hosts, static_cast<double>(SDL_GetTicks()) / 1000.0);
         draw_screen(app);
         if (app->fingers.presses > 0 && app->settings.vibrate)
         {
@@ -534,6 +639,7 @@ int main(int argc, char** argv)
 
     go_to(app, Screen::home);   // saves what the current screen holds (settings, a layout being edited)
     haptics_close(&app->haptics);
+    hosts_destroy(&app->hosts);
     real_gamepad_close(&app->gamepad);
     app_shell_destroy(&app->shell);
     delete app;

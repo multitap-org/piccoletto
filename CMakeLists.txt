@@ -139,6 +139,7 @@ set(PICCOLETTO_SOURCES
     src/touch_fingers.cpp
     src/haptics.cpp
     src/real_gamepad.cpp
+    src/hosts.cpp
 )
 if(ANDROID)
     # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):
@@ -152,7 +153,7 @@ if(ANDROID)
 else()
     add_executable(piccoletto ${PICCOLETTO_SOURCES})
 endif()
-target_link_libraries(piccoletto PRIVATE frontend_common retroui)
+target_link_libraries(piccoletto PRIVATE frontend_common frontend_net retroui)
 
 set(PICCOLETTO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(PICCOLETTO_VERSION_BASE 0.1)
@@ -164,4 +165,20 @@ message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 multitap_set_project_flags(piccoletto)
 if(NOT ANDROID)
     multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
+endif()
+
+if(MULTITAP_BUILD_TESTS)
+    # src/hosts.* against a host in the same process over loopback (pairing,
+    # connecting, discovery). Its scratch folder is emptied first.
+    add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)
+    target_include_directories(piccoletto_hosts_test PRIVATE src)
+    target_link_libraries(piccoletto_hosts_test PRIVATE frontend_common frontend_net)
+    multitap_set_project_flags(piccoletto_hosts_test)
+    set(HOSTS_TEST_SCRATCH "${CMAKE_CURRENT_BINARY_DIR}/hosts_test")
+    add_test(NAME piccoletto_hosts_clean COMMAND ${CMAKE_COMMAND} -E rm -rf "${HOSTS_TEST_SCRATCH}")
+    set_tests_properties(piccoletto_hosts_clean PROPERTIES FIXTURES_SETUP hosts_scratch)
+    add_test(NAME piccoletto_hosts COMMAND piccoletto_hosts_test "${HOSTS_TEST_SCRATCH}")
+    set_tests_properties(piccoletto_hosts PROPERTIES
+                         FIXTURES_REQUIRED hosts_scratch
+                         FAIL_REGULAR_EXPRESSION "ERROR: AddressSanitizer|ERROR: LeakSanitizer|runtime error:")
 endif()

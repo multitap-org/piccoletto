@@ -178,6 +178,32 @@ static void draw_bar(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts,
     }
 }
 
+// No paired host yet: one card that says so, PAIR A DEVICE as its button.
+static NavAction draw_empty(const TouchUi* ui, int32_t found_count, float x, float y, float width, float height)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    touch_ui_rect(ui, x, y, width, height, palette->panel_face);
+    float inner_x = x + CARD_PADDING;
+    float line = y + CARD_PADDING;
+    touch_ui_text(ui, inner_x, line, "NO DEVICES YET", palette->text_highlight, TouchText::big);
+    line += touch_ui_text_height(ui, TouchText::big) + 8.0f;
+    touch_ui_text(ui, inner_x, line, "PAIR ONE TO PLAY ON IT", palette->text_disabled, TouchText::normal);
+    line += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
+    if (found_count > 0)
+    {
+        char found[48];
+        std::snprintf(found, sizeof(found), "%d FOUND ON THIS NETWORK", static_cast<int>(found_count));
+        touch_ui_text(ui, inner_x, line, found, palette->text_disabled, TouchText::normal);
+    }
+    float button_y = y + height - CARD_PADDING - MAIN_BUTTON;
+    if (touch_ui_button(ui, "##empty_pair", inner_x, button_y, width - 2.0f * CARD_PADDING, MAIN_BUTTON, "PAIR A DEVICE",
+                        TouchButton::primary, TouchText::big))
+    {
+        return NavAction::pair;
+    }
+    return NavAction::none;
+}
+
 NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
                             int32_t found_count)
 {
@@ -196,6 +222,12 @@ NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* 
     NavAction action = title_bar_icons(ui, true, found_count);
 
     float content_y = title_bar_bottom(ui) + (landscape ? 6.0f : 12.0f);
+    if (host_count == 0)
+    {
+        float empty_height = landscape ? height - content_y - MARGIN : 120.0f;
+        NavAction empty = draw_empty(ui, found_count, MARGIN, content_y, width - 2.0f * MARGIN, empty_height);
+        return empty != NavAction::none ? empty : action;
+    }
     int32_t others = other_count(host_count);
     if (landscape)
     {
