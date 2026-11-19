@@ -1,7 +1,9 @@
 // hosts (src/hosts.*) against a real host in the same process (net_access,
-// as piccolo runs it) over loopback: pairing with the code, a wrong code,
-// connecting again as a paired phone with the level the host gives, the host
-// online through discovery, forgetting it.
+// as piccolo runs it, answering speed tests like piccolo's main.cpp) over
+// loopback: pairing with the code, a wrong code, connecting again as a
+// paired phone with the level the host gives, the ping, a speed test, the
+// host online through discovery, FORGET telling the host, the host
+// unpairing the phone.
 //
 //   piccoletto_hosts_test <scratch folder>
 
@@ -14,6 +16,7 @@
 #include "host_fs.h"
 #include "hosts.h"
 #include "net_access.h"
+#include "net_speed.h"
 
 static int g_failures = 0;
 
@@ -33,24 +36,102 @@ static double now_seconds()
     return static_cast<double>(SDL_GetTicksNS()) / 1e9;
 }
 
-// Runs both sides until `done` says so (or a few seconds pass).
+// The host side: net_access and piccolo's speed test answers.
 struct Pump
 {
-    Hosts*     hosts;
-    NetAccess* access;
+    Hosts*           hosts;
+    NetAccess*       access;
+    NetSpeedSender   sender;
+    NetSpeedReceiver receiver;
+    bool             reporting = false;
 };
 
-static void pump_once(const Pump* pump)
+// As piccolo's net_speed_request / net_speed_update.
+static void host_speed_request(Pump* pump, const NetAccessEvent* event)
+{
+    uint32_t id = 0;
+    NetSpeedDirection direction = NetSpeedDirection::down;
+    uint32_t rate = 0;
+    uint32_t duration = 0;
+    if (!net_speed_read_request(event->data, event->size, &id, &direction, &rate, &duration) || pump->sender.active ||
+        pump->reporting || pump->receiver.active)
+    {
+        return;
+    }
+    double now = net_seconds();
+    if (direction == NetSpeedDirection::down)
+    {
+        net_speed_sender_start(&pump->sender, id, event->peer, rate, duration, now);
+    }
+    else
+    {
+        net_speed_receiver_start(&pump->receiver, id, event->peer,
+                                 now + static_cast<double>(duration) / 1000.0 + NET_SPEED_GRACE_SECONDS);
+    }
+}
+
+static void host_speed_update(Pump* pump)
+{
+    double now = net_seconds();
+    if (pump->sender.active)
+    {
+        uint8_t packet[NET_SPEED_PACKET_SIZE];
+        uint32_t due = net_speed_sender_due(&pump->sender, now);
+        for (uint32_t i = 0; i < due; i++)
+        {
+            size_t size = net_speed_write_data(packet, sizeof(packet), pump->sender.id, pump->sender.sent);
+            net_access_send(pump->access, pump->sender.peer, NetChannel::input, packet, size);
+            net_speed_sender_sent(&pump->sender, size);
+        }
+        pump->reporting = !pump->sender.active;
+    }
+    uint8_t out[64];
+    if (pump->reporting)
+    {
+        NetSpeedReport report;
+        report.id = pump->sender.id;
+        report.direction = NetSpeedDirection::down;
+        report.packets = pump->sender.sent;
+        report.bytes = pump->sender.sent_bytes;
+        report.seconds = pump->sender.duration;
+        size_t size = net_speed_write_report(out, sizeof(out), &report);
+        net_access_send(pump->access, pump->sender.peer, NetChannel::control, out, size);
+        pump->reporting = false;
+    }
+    if (pump->receiver.active && now >= pump->receiver.until)
+    {
+        NetSpeedReport report;
+        net_speed_receiver_report(&pump->receiver, NetSpeedDirection::up, &report);
+        size_t size = net_speed_write_report(out, sizeof(out), &report);
+        net_access_send(pump->access, pump->receiver.peer, NetChannel::control, out, size);
+        pump->receiver.active = false;
+    }
+}
+
+static void pump_once(Pump* pump)
 {
     NetAccessEvent event;
     while (net_access_poll(pump->access, &event))
     {
+        if (event.type != NetAccessEventType::message)
+        {
+            continue;
+        }
+        if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_SPEED_REQUEST)
+        {
+            host_speed_request(pump, &event);
+        }
+        else if (event.channel == NetChannel::input)
+        {
+            net_speed_receive(&pump->receiver, event.data, event.size, net_seconds());
+        }
     }
+    host_speed_update(pump);
     hosts_update(pump->hosts, now_seconds());
-    SDL_Delay(2);
+    SDL_Delay(1);
 }
 
-static bool pump_until_pair_done(const Pump* pump)
+static bool pump_until_pair_done(Pump* pump)
 {
     double end = now_seconds() + 5.0;
     while (now_seconds() < end)
@@ -64,7 +145,17 @@ static bool pump_until_pair_done(const Pump* pump)
     return false;
 }
 
-static bool pump_until_link_done(const Pump* pump)
+// Pumps until the speed test is over (or `seconds` pass).
+static void end_wait(Pump* pump, double seconds)
+{
+    double end = now_seconds() + seconds;
+    while (now_seconds() < end && pump->hosts->speed.running)
+    {
+        pump_once(pump);
+    }
+}
+
+static bool pump_until_link_done(Pump* pump)
 {
     double end = now_seconds() + 5.0;
     while (now_seconds() < end)
@@ -102,7 +193,9 @@ int main(int argc, char** argv)
     Hosts* hosts = new Hosts{};
     check(hosts_create(hosts, phone_dir.c_str(), "TEST PHONE"), "hosts_create");
     check(hosts->known.empty(), "nothing paired at first");
-    Pump pump = {hosts, access};
+    Pump pump;
+    pump.hosts = hosts;
+    pump.access = access;
 
     NetAddress address;
     char typed[32];
@@ -159,9 +252,28 @@ int main(int argc, char** argv)
     {
         net_access_set_level(access, 0, NetAccessLevel::full);
     }
-    check(hosts_connect(hosts, 0), "connect starts");
+    check(hosts_connect(hosts, 0, false), "connect starts");
     check(pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected as a paired phone");
     check(!hosts->known.empty() && hosts->known[0].access == NetAccessLevel::full, "the host's level");
+    for (int32_t i = 0; i < 20; i++)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->has_stats, "the ping while connected");
+    char link[32];
+    hosts_link_text(hosts, link, sizeof(link));
+    check(std::strstr(link, "MS") != nullptr, "the status line says the ping");
+    hosts_disconnect(hosts);
+    hosts_link_text(hosts, link, sizeof(link));
+    check(std::strcmp(link, "OFFLINE") == 0, "offline once left");
+
+    // A speed test when connecting for REMOTE PLAY (STREAM access or more).
+    check(hosts_connect(hosts, 0, true), "connect with a speed test");
+    check(pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected again");
+    check(hosts->speed.running, "the speed test runs");
+    end_wait(&pump, 20.0);
+    check(!hosts->speed.running, "the speed test ends");
+    check(!hosts->known.empty() && hosts->known[0].down_kbps > 0 && hosts->known[0].up_kbps > 0, "speeds measured");
     hosts_disconnect(hosts);
 
     // Discovery: the host answers at its last address, so it's online.
@@ -189,9 +301,50 @@ int main(int argc, char** argv)
               hosts->known[0].address.port == TEST_PORT,
           "paired host, level and address kept");
 
-    // Forgetting.
+    check(hosts->known.size() == 1 && hosts->known[0].down_kbps > 0, "speeds kept");
+
+    // FORGET with the host online: it's told and forgets this phone too.
+    end = now_seconds() + 5.0;
+    while (now_seconds() < end && !(hosts->known.size() == 1 && hosts->known[0].online))
+    {
+        pump_once(&pump);
+    }
     hosts_forget(hosts, 0);
-    check(hosts->known.empty(), "forgotten");
+    end = now_seconds() + 5.0;
+    while (now_seconds() < end && !(hosts->known.empty() && access->trust.devices.empty()))
+    {
+        pump_once(&pump);
+    }
+    check(hosts->known.empty(), "forgotten here");
+    check(access->trust.devices.empty(), "forgotten on the host too");
+
+    // Paired again; the host unpairs the phone while it's connected.
+    for (int32_t i = 0; i < 50; i++)
+    {
+        pump_once(&pump);
+    }
+    if (!access->pairing_open)
+    {
+        check(net_access_open_pairing(access), "host opens pairing for the next one");
+    }
+    check(hosts_pair(hosts, address, access->code) && pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired,
+          "paired again");
+    check(hosts_connect(hosts, 0, false) && pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected");
+    for (int32_t i = 0; i < 20; i++)
+    {
+        pump_once(&pump);
+    }
+    check(access->trust.devices.size() == 1, "the host lists it again");
+    if (access->trust.devices.size() == 1)
+    {
+        net_access_remove_device(access, 0);
+    }
+    end = now_seconds() + 5.0;
+    while (now_seconds() < end && !hosts->known.empty())
+    {
+        pump_once(&pump);
+    }
+    check(hosts->known.empty(), "unpaired by the host: gone here too");
     hosts_destroy(hosts);
     delete hosts;
 

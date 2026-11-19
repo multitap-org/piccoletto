@@ -235,7 +235,7 @@ static void go_to(App* app, Screen screen)
     bool mode = screen == Screen::gamepad || screen == Screen::remote_play || screen == Screen::devices;
     if (mode)
     {
-        hosts_connect(&app->hosts, app->home.selected);
+        hosts_connect(&app->hosts, app->home.selected, screen == Screen::remote_play);
     }
     else if (screen != app->screen)
     {
@@ -440,6 +440,8 @@ static void draw_screen(App* app)
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
     HomeHost shown[MAX_SHOWN_HOSTS];
     int32_t shown_count = home_hosts(app, shown);
+    char link[32];
+    hosts_link_text(&app->hosts, link, sizeof(link));
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
     {
@@ -450,12 +452,12 @@ static void draw_screen(App* app)
             action = draw_pair(app);
             break;
         case Screen::gamepad:
-            action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), &app->layouts,
-                                         &app->editor);
+            action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, link, selected_full_access(app),
+                                         &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
-            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), show_touch,
-                                             &app->stream, &app->layouts, &app->editor);
+            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, link, selected_full_access(app),
+                                             show_touch, &app->stream, &app->layouts, &app->editor);
             break;
         case Screen::devices:
             action = devices_screen_draw(&app->devices, &app->ui, selected_host(app));

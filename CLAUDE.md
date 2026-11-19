@@ -75,7 +75,8 @@ src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts
                         the ☰ sheet, ROTATE, back key; for testing: --screen home|pair|gamepad|remote_play|
                         devices|settings, --landscape, --aspect W:H (the stream's shape), --edit
 src/hosts.*             the network (frontend_net): this phone's identity, the paired hosts, LAN discovery,
-                        pairing with the code, connecting; files settings/net_identity.cfg, net_hosts.cfg, hosts.cfg
+                        pairing with the code, connecting, the ping, the speed test (REMOTE PLAY), FORGET on
+                        both sides; files settings/net_identity.cfg, net_hosts.cfg, hosts.cfg
 src/touch_fingers.*     every finger (SDL finger events; the mouse on the desktop), for the pads and the pinch
 src/real_gamepad.*      gamepads connected to the phone: light the pad's parts, hide REMOTE PLAY's touch controls
 src/haptics.*           VIBRATE ON PRESS (the phone's vibrator through SDL haptics; nothing on the desktop)
@@ -136,7 +137,7 @@ The screen follows the phone (SDL's "full user", so the system rotation lock
 is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
 tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
-19 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
+20 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no
 ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 

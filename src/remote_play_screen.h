@@ -27,5 +27,6 @@ struct RemoteStream
 // `full_access`: the host gave this phone every mode (the HOTKEY button).
 // `show_touch` false: the touch controls aren't drawn (a real gamepad is
 // connected); EDIT LAYOUT still shows them.
-NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, bool full_access, bool show_touch,
-                                  const RemoteStream* stream, PadLayouts* layouts, PadEditor* editor);
+// `link`: the connection's state for the status line ("12 MS", "CONNECTING", "OFFLINE").
+NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, const char* link, bool full_access,
+                                  bool show_touch, const RemoteStream* stream, PadLayouts* layouts, PadEditor* editor);
