@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.multitap.piccoletto</id>
+  <name>piccoletto</name>
+  <summary>Companion app for piccolo</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      piccolo's companion: use the device as a gamepad for piccolo, play
+      what piccolo streams (remote play), and move the connected devices
+      between ports. It never runs games itself.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.multitap.piccoletto.desktop</launchable>
+  <url type="homepage">https://github.com/multitap-org/piccoletto</url>
+  <developer id="org.multitap">
+    <name>multitap</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Game</category>
+  </categories>
+</component>

@@ -14,3 +14,4 @@ imgui.ini
 
 # Notes stay local (see CLAUDE.md)
 docs/
+.flatpak-builder/

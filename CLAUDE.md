@@ -101,6 +101,8 @@ src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT L
 android/           the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
                    AndroidManifest.xml (org.multitap.piccoletto, minSdk 28, targetSdk 35)
+flatpak/           org.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
+.github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64)
 tools/             lsan-suppressions.txt
 ```
 

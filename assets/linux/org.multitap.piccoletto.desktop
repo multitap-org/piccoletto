@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=piccoletto
+Comment=Companion app for piccolo: gamepad, remote play, devices
+Exec=piccoletto
+Terminal=false
+Categories=Game;
+StartupWMClass=org.multitap.piccoletto
