@@ -22,11 +22,12 @@ const char* nav_action_name(NavAction action)
         case NavAction::edit_layout: return "EDIT LAYOUT";
         case NavAction::edit_done:   return "EDIT LAYOUT DONE";
         case NavAction::settings:    return "SETTINGS";
+        case NavAction::touch_controls: return "TOUCH CONTROLS";
         default:                     return "?";
     }
 }
 
-NavAction menu_sheet_draw(const TouchUi* ui, Screen current)
+NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, bool touch_shown)
 {
     float width = touch_ui_width(ui);
     float height = touch_ui_height(ui);
@@ -36,8 +37,8 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current)
     // first, then the sheet's and the outside's areas (drawn before them).
     touch_ui_rect(ui, 0.0f, 0.0f, width, height, DIM);
 
-    const int32_t button_count = 4;
-    float sheet_height = 2.0f * SHEET_PADDING + button_count * SHEET_BUTTON + (button_count - 1) * SHEET_GAP;
+    float button_count = touch_toggle ? 5.0f : 4.0f;
+    float sheet_height = 2.0f * SHEET_PADDING + button_count * SHEET_BUTTON + (button_count - 1.0f) * SHEET_GAP;
     float sheet_width = SHEET_WIDTH < width - 16.0f ? SHEET_WIDTH : width - 16.0f;
     float x = (width - sheet_width) * 0.5f;
     float y = (height - sheet_height) * 0.5f;
@@ -60,6 +61,16 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current)
         picked = NavAction::edit_layout;
     }
     button_y += SHEET_BUTTON + SHEET_GAP;
+    if (touch_toggle)
+    {
+        const char* label = touch_shown ? "HIDE TOUCH CONTROLS" : "SHOW TOUCH CONTROLS";
+        if (touch_ui_button(ui, "##sheet_touch", button_x, button_y, button_width, SHEET_BUTTON, label, TouchButton::normal,
+                            TouchText::normal))
+        {
+            picked = NavAction::touch_controls;
+        }
+        button_y += SHEET_BUTTON + SHEET_GAP;
+    }
     if (touch_ui_button(ui, "##sheet_rotate", button_x, button_y, button_width, SHEET_BUTTON, "ROTATE", TouchButton::normal,
                         TouchText::normal))
     {

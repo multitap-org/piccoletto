@@ -15,6 +15,7 @@ enum class NavAction
     edit_layout,   // EDIT LAYOUT on the current pad
     edit_done,     // EDIT LAYOUT's DONE: save the layouts
     settings,
+    touch_controls,   // REMOTE PLAY with a real gamepad: show / hide the touch controls
 };
 
 enum class Screen

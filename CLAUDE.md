@@ -74,6 +74,9 @@ CMakeLists.txt     options, SDL, Vulkan, imgui, the libraries, piccoletto
 src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts.cfg), screens (NavAction),
                         the ☰ sheet, ROTATE, back key; for testing: --screen home|pair|gamepad|remote_play|
                         devices|settings, --landscape, --aspect W:H (the stream's shape), --edit
+src/touch_fingers.*     every finger (SDL finger events; the mouse on the desktop), for the pads and the pinch
+src/real_gamepad.*      gamepads connected to the phone: light the pad's parts, hide REMOTE PLAY's touch controls
+src/haptics.*           VIBRATE ON PRESS (the phone's vibrator through SDL haptics; nothing on the desktop)
 src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
                         buttons (normal, primary, ghost, card, plain, field)
 src/screens.h           Screen, NavAction (what a tap asks for)
@@ -87,7 +90,7 @@ src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held)
                         to the screen; the user's moves / sizes / alpha per group, saved
 src/pad_layouts.*       every layout's defaults: GAMEPAD portrait, landscape (one default shared by GAMEPAD and
                         REMOTE PLAY), REMOTE PLAY below the picture, overlay portrait (tall pictures: DS)
-src/pad_editor.*        EDIT LAYOUT: drag groups, SIZE, OPACITY, SNAP (8 dp), RESET, DONE
+src/pad_editor.*        EDIT LAYOUT: drag groups, pinch / SIZE, OPACITY, SNAP (8 dp), RESET, DONE
 src/app_settings.*      piccoletto.cfg: phone name, theme, language, vibrate, overlay opacity, quality
 src/settings_screen.*   SETTINGS (HOME's ☰), drag to scroll
 src/gamepad_screen.*    GAMEPAD: portrait (header + pad) and landscape (the pad picture's shape)
@@ -137,12 +140,13 @@ ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 - Desktop build (Linux): every screen (HOME, PAIR, GAMEPAD, REMOTE PLAY,
   DEVICES) in portrait and landscape with placeholder data, the ☰ sheet,
   ROTATE (swaps the window's sides; on a phone it will lock the orientation),
-  back = Escape / Android's back. Nothing goes over the network yet; pad parts
-  light with one pointer (the mouse), multi-touch comes with the input.
+  back = Escape / Android's back. Nothing goes over the network yet. Pads:
+  multi-touch (buttons by any free finger, a stick owned by its finger),
+  a real gamepad lights them too, vibrate on press, pinch in EDIT LAYOUT.
 - EDIT LAYOUT on every pad layout; REMOTE PLAY fits any aspect (overlay when the
   pad doesn't fit); SETTINGS (theme applies at once; language is stored, no
   translations yet; FORGET only logs).
-- Not yet: pinch to resize, opacity / quality while streaming, translations.
+- Not yet: opacity / quality while streaming, translations.
 - Every screen, EDIT LAYOUT and SETTINGS are on main (merged 2026-11-19).
 - Never switch branches in a checkout another session may be using (piccolo's
   main folder): use a worktree.

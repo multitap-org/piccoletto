@@ -17,12 +17,19 @@
 #include "retro_ui.h"
 
 struct ImFont;
+struct TouchFingers;
+struct RealGamepad;
 
 struct TouchUi
 {
-    ImFont*        font  = nullptr;
-    int32_t        scale = 1;          // window pixels per retro pixel
+    ImFont*        font    = nullptr;
+    int32_t        scale   = 1;          // window pixels per retro pixel
     RetroUiPalette palette = {};
+    // Every finger, for the pads (touch_fingers.h); nullptr while something
+    // covers the screen (the ☰ sheet, HOME's sidebar): the pads take none then.
+    TouchFingers*  fingers = nullptr;
+    // Real gamepads (real_gamepad.h): their presses light the pads' parts too.
+    const RealGamepad* gamepad = nullptr;
 };
 
 // The scale for a window: the short side holds at least 195 retro pixels
@@ -78,9 +85,6 @@ bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float 
 // A touch area with nothing drawn (the caller draws it): true when tapped,
 // *held while a finger (the mouse) is on it.
 bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held);
-
-// Where the finger (the mouse) is, in retro pixels from the screen's top left.
-void touch_ui_pointer(const TouchUi* ui, float* x, float* y);
 
 // A light the height of a letter at (x, y + 2): online green, or `argb`.
 constexpr float TOUCH_UI_LAMP = 5.0f;

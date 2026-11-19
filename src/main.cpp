@@ -14,6 +14,7 @@
 #include "app_shell.h"
 #include "devices_screen.h"
 #include "gamepad_screen.h"
+#include "haptics.h"
 #include "home_screen.h"
 #include "host_fs.h"
 #include "menu_sheet.h"
@@ -23,11 +24,13 @@
 #include "piccoletto_version.h"
 #include "pixel_font.h"
 #include "pixel_font_imgui.h"
+#include "real_gamepad.h"
 #include "remote_play_screen.h"
 #include "retro_ui.h"
 #include "screens.h"
 #include "settings_file.h"
 #include "settings_screen.h"
+#include "touch_fingers.h"
 #include "touch_ui.h"
 
 // Placeholder hosts until pairing exists: what HOME looks like with a few
@@ -58,6 +61,10 @@ struct App
     PadEditor      editor     = {};
     RemoteStream   stream     = {};   // placeholder until there's a stream
     AppSettings    settings   = {};
+    TouchFingers   fingers    = {};   // every finger, for the pads
+    Haptics        haptics    = {};   // VIBRATE ON PRESS
+    RealGamepad    gamepad    = {};   // gamepads connected to the phone
+    bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
     std::string    settings_path;     // settings/piccoletto.cfg ("" = nothing is saved)
     std::string    layouts_path;      // settings/layouts.cfg
     SettingsFile   settings_file;
@@ -255,6 +262,10 @@ static void handle_action(App* app, NavAction action)
         case NavAction::settings:
             go_to(app, Screen::settings);
             break;
+        case NavAction::touch_controls:
+            app->touch_with_gamepad = !app->touch_with_gamepad;
+            app->sheet_open = false;
+            break;
     }
 }
 
@@ -291,6 +302,9 @@ static void handle_events(App* app)
     {
         bool typing = ImGui::GetIO().WantTextInput;
         app_shell_process_event(&app->shell, &event);
+        const ImGuiIO& io = ImGui::GetIO();
+        touch_fingers_event(&app->fingers, &event, io.DisplaySize.x, io.DisplaySize.y);
+        real_gamepad_event(&app->gamepad, &event);
         if (event.type == SDL_EVENT_QUIT)
         {
             app->running = false;
@@ -309,6 +323,13 @@ static void draw_screen(App* app)
     NavAction action = NavAction::none;
     bool done = false;
     int32_t forget = -1;
+    // The pads take fingers only while nothing covers them.
+    bool covered = app->sheet_open || (app->screen == Screen::home && app->home.sidebar_open);
+    app->ui.fingers = covered ? nullptr : &app->fingers;
+    app->ui.gamepad = &app->gamepad;
+    // REMOTE PLAY: the touch controls hide while a real gamepad is connected (unless shown from the sheet).
+    bool gamepad_connected = real_gamepad_connected(&app->gamepad);
+    bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
     {
@@ -329,8 +350,8 @@ static void draw_screen(App* app)
                                          &app->editor);
             break;
         case Screen::remote_play:
-            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), &app->stream,
-                                             &app->layouts, &app->editor);
+            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), show_touch,
+                                             &app->stream, &app->layouts, &app->editor);
             break;
         case Screen::devices:
             action = devices_screen_draw(&app->devices, &app->ui, selected_host(app));
@@ -357,7 +378,7 @@ static void draw_screen(App* app)
     if (app->sheet_open)
     {
         touch_ui_begin_overlay(&app->ui, "##sheet_window");
-        action = menu_sheet_draw(&app->ui, app->screen);
+        action = menu_sheet_draw(&app->ui, app->screen, app->screen == Screen::remote_play && gamepad_connected, show_touch);
         touch_ui_end_screen();
     }
     if (action != NavAction::none)
@@ -477,6 +498,7 @@ int main(int argc, char** argv)
 #endif
     find_files(app);
     load_files(app);
+    haptics_open(&app->haptics);
 
     go_to(app, first);
     app->editor.active = edit && (first == Screen::gamepad || first == Screen::remote_play);
@@ -491,7 +513,13 @@ int main(int argc, char** argv)
         const ImGuiIO& io = ImGui::GetIO();
         app->ui.scale = touch_ui_scale_for(io.DisplaySize.x, io.DisplaySize.y);
         apply_settings(app);
+        real_gamepad_update(&app->gamepad);
         draw_screen(app);
+        if (app->fingers.presses > 0 && app->settings.vibrate)
+        {
+            haptics_buzz(&app->haptics);
+        }
+        touch_fingers_end_frame(&app->fingers);
 
         uint32_t background = app->ui.palette.background;
         ClearColor clear = {static_cast<float>((background >> 16) & 0xFFu) / 255.0f,
@@ -505,6 +533,8 @@ int main(int argc, char** argv)
     }
 
     go_to(app, Screen::home);   // saves what the current screen holds (settings, a layout being edited)
+    haptics_close(&app->haptics);
+    real_gamepad_close(&app->gamepad);
     app_shell_destroy(&app->shell);
     delete app;
     return 0;

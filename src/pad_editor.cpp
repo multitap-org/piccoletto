@@ -5,6 +5,8 @@
 
 #include "imgui.h"
 
+#include "touch_fingers.h"
+
 constexpr float SNAP_DP       = 8.0f;
 constexpr float SIZE_STEP     = 0.1f;
 constexpr float OPACITY_STEP  = 0.1f;
@@ -79,8 +81,47 @@ static int32_t stepper(const TouchUi* ui, const char* id, const char* name, cons
     return step;
 }
 
+// Two fingers down: the picked group's size follows the distance between
+// them (relative to where the pinch began). True while pinching.
+static bool pinch(PadEditor* editor, const TouchUi* ui, PadLayout* layout)
+{
+    const TouchFingers* fingers = ui->fingers;
+    const TouchFinger* down[2] = {nullptr, nullptr};
+    int32_t count = 0;
+    for (int32_t i = 0; fingers != nullptr && i < fingers->count; i++)
+    {
+        if (!fingers->fingers[i].lifted)
+        {
+            if (count < 2)
+            {
+                down[count] = &fingers->fingers[i];
+            }
+            count++;
+        }
+    }
+    if (count != 2)
+    {
+        editor->pinching = false;
+        return false;
+    }
+    float dx = down[1]->x - down[0]->x;
+    float dy = down[1]->y - down[0]->y;
+    float distance = std::sqrt(dx * dx + dy * dy);
+    PadGroupEdit* edit = &layout->groups[static_cast<int32_t>(editor->selected)];
+    if (!editor->pinching)
+    {
+        editor->pinching = distance > 1.0f;
+        editor->pinch_distance = distance;
+        editor->pinch_scale = edit->scale;
+        return editor->pinching;
+    }
+    edit->scale = clampf(editor->pinch_scale * distance / editor->pinch_distance, PAD_SCALE_MIN, PAD_SCALE_MAX);
+    return true;
+}
+
 bool pad_editor_draw(PadEditor* editor, const TouchUi* ui, const PadFrame* frame, PadLayout* layout)
 {
+    bool pinching = pinch(editor, ui, layout);
     const RetroUiPalette* palette = &ui->palette;
     float screen_width = touch_ui_width(ui);
     float screen_height = touch_ui_height(ui);
@@ -209,7 +250,7 @@ bool pad_editor_draw(PadEditor* editor, const TouchUi* ui, const PadFrame* frame
         std::snprintf(id, sizeof(id), "##edit_group%d", static_cast<int>(g));
         bool released = touch_ui_area(ui, id, gx, gy, gw, gh, &held);
         PadGroupEdit* group_edit = &layout->groups[g];
-        if (held)
+        if (held && !pinching)
         {
             // Dragging: the finger's movement this frame, in dp.
             editor->selected = group;

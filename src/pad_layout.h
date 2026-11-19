@@ -10,8 +10,10 @@
 // face buttons, a stick...) moved and resized, and the whole layout's alpha
 // (for overlays over the game). Saved per layout in settings/layouts.cfg.
 //
-// For now a part is "held" while the mouse (one finger) is on it; real
-// multi-touch (SDL finger events) comes with the network input.
+// Multi-touch (touch_fingers.h): a button is held while any free finger is
+// on it (sliding from one to the next works, like across the d-pad); a stick
+// belongs to the finger that went down on it until that finger is lifted,
+// and that finger presses nothing else.
 
 #include <cstdint>
 
@@ -76,7 +78,10 @@ struct PadLayout
     PadGroupEdit   groups[PAD_GROUP_COUNT] = {};
     float          alpha         = 1.0f;
     bool           alpha_set     = false;     // set in EDIT LAYOUT; else the default follows SETTINGS
+    uint32_t       held          = 0;         // the parts a finger held last frame, a bit each (part index < 32)
 };
+
+constexpr int32_t PAD_MAX_PARTS = 32;   // `held`'s bits
 
 constexpr float PAD_SCALE_MIN = 0.5f;
 constexpr float PAD_SCALE_MAX = 2.0f;
@@ -122,9 +127,10 @@ float pad_x(const PadFrame* frame, float dp);
 float pad_y(const PadFrame* frame, float dp);
 float pad_size(const PadFrame* frame, float dp);
 
-// Draws the layout's parts (at its alpha, the held ones lit); the hotkey
-// button only with `full_access`. Returns how many are held now.
-int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout, bool full_access);
+// Draws the layout's parts (at its alpha, the held ones lit: from ui->fingers
+// and ui->gamepad); the hotkey button only with `full_access`. Parts newly
+// held by a finger this frame are added to ui->fingers->presses.
+void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, bool full_access);
 
 // One part at screen position (retro pixels), at `alpha`; `held` lit;
 // `overlay`: in the button color (over a picture) instead of the field color

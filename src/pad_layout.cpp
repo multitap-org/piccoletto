@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "real_gamepad.h"
 #include "settings_file.h"
+#include "touch_fingers.h"
 
 // The yellow of a lit part: the same in every theme, as in piccolo's pad picture.
 constexpr uint32_t PART_LIT      = 0xFFFFDC50u;
@@ -274,10 +276,9 @@ void pad_part_draw(const TouchUi* ui, const PadPart* part, float x, float y, flo
     }
 }
 
-// A held stick's position, -1..1 on each axis: where the finger is from the
+// A held stick's position, -1..1 on each axis: where its finger is from the
 // block's middle, full tilt at the edge the nub can reach (40% of the block,
-// see pad_part_draw) and kept there when the finger goes past it (the press
-// stays the stick's until it's lifted).
+// see pad_part_draw) and kept there when the finger goes past it.
 static float stick_axis(float finger, float start, float size)
 {
     float travel = size * 0.3f;   // (size - the nub's 40%) / 2
@@ -285,21 +286,58 @@ static float stick_axis(float finger, float start, float size)
     return value < -1.0f ? -1.0f : (value > 1.0f ? 1.0f : value);
 }
 
-static void stick_position(const TouchUi* ui, float x, float y, float width, float height, float* stick_x, float* stick_y)
+static bool inside(float x, float y, float left, float top, float width, float height)
 {
-    float finger_x = 0.0f;
-    float finger_y = 0.0f;
-    touch_ui_pointer(ui, &finger_x, &finger_y);
-    *stick_x = stick_axis(finger_x, x, width);
-    *stick_y = stick_axis(finger_y, y, height);
+    return x >= left && x < left + width && y >= top && y < top + height;
 }
 
-int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout, bool full_access)
+// Whether a part is held, from the fingers (retro pixels: finger / scale). A
+// stick: the finger it owns, or a free finger that just went down on it
+// (which it takes). A button: any free finger on it.
+static const TouchFinger* holding_finger(const TouchUi* ui, const PadPart* part, float x, float y, float width, float height)
 {
-    int32_t held_count = 0;
-    for (int32_t i = 0; i < layout->count; i++)
+    TouchFingers* fingers = ui->fingers;
+    if (fingers == nullptr)
     {
-        if (layout->parts[i].kind == PadPartKind::hotkey && !full_access)
+        return nullptr;
+    }
+    float scale = static_cast<float>(ui->scale);
+    for (int32_t i = 0; i < fingers->count; i++)
+    {
+        TouchFinger* finger = &fingers->fingers[i];
+        if (part->kind == PadPartKind::stick && finger->owner == part->id)
+        {
+            return finger;
+        }
+    }
+    for (int32_t i = 0; i < fingers->count; i++)
+    {
+        TouchFinger* finger = &fingers->fingers[i];
+        if (finger->owner != nullptr || !inside(finger->x / scale, finger->y / scale, x, y, width, height))
+        {
+            continue;
+        }
+        if (part->kind == PadPartKind::stick)
+        {
+            if (finger->began)
+            {
+                finger->owner = part->id;
+                return finger;
+            }
+            continue;
+        }
+        return finger;
+    }
+    return nullptr;
+}
+
+void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, bool full_access)
+{
+    uint32_t held_now = 0;
+    for (int32_t i = 0; i < layout->count && i < PAD_MAX_PARTS; i++)
+    {
+        const PadPart* part = &layout->parts[i];
+        if (part->kind == PadPartKind::hotkey && !full_access)
         {
             continue;
         }
@@ -312,17 +350,28 @@ int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayou
         float screen_y = pad_y(frame, y);
         float screen_width = pad_size(frame, width);
         float screen_height = pad_size(frame, height);
-        bool held = false;
-        touch_ui_area(ui, layout->parts[i].id, screen_x, screen_y, screen_width, screen_height, &held);
-        held_count += held ? 1 : 0;
+        const TouchFinger* finger = holding_finger(ui, part, screen_x, screen_y, screen_width, screen_height);
         float stick_x = 0.0f;
         float stick_y = 0.0f;
-        if (held && layout->parts[i].kind == PadPartKind::stick)
+        bool on_gamepad = ui->gamepad != nullptr && real_gamepad_part_held(ui->gamepad, part->id, &stick_x, &stick_y);
+        bool held = finger != nullptr || on_gamepad;
+        if (finger != nullptr)
         {
-            stick_position(ui, screen_x, screen_y, screen_width, screen_height, &stick_x, &stick_y);
+            uint32_t bit = 1u << static_cast<uint32_t>(i);
+            held_now |= bit;
+            if ((layout->held & bit) == 0 && ui->fingers != nullptr)
+            {
+                ui->fingers->presses++;
+            }
+            if (part->kind == PadPartKind::stick)
+            {
+                float scale = static_cast<float>(ui->scale);
+                stick_x = stick_axis(finger->x / scale, screen_x, screen_width);
+                stick_y = stick_axis(finger->y / scale, screen_y, screen_height);
+            }
         }
-        pad_part_draw(ui, &layout->parts[i], screen_x, screen_y, screen_width, screen_height, layout->alpha, held, layout->overlay,
-                      stick_x, stick_y);
+        pad_part_draw(ui, part, screen_x, screen_y, screen_width, screen_height, layout->alpha, held, layout->overlay, stick_x,
+                      stick_y);
     }
-    return held_count;
+    layout->held = held_now;
 }

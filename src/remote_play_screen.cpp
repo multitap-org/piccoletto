@@ -47,13 +47,17 @@ static void fit_picture(float aspect, float room_x, float room_y, float room_wid
 }
 
 // The layout played, or edited.
-static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool full_access)
+static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool full_access,
+                          bool show_touch)
 {
     if (editor->active)
     {
         return pad_editor_draw(editor, ui, frame, layout) ? NavAction::edit_done : NavAction::none;
     }
-    pad_layout_draw(ui, frame, layout, full_access);
+    if (show_touch)
+    {
+        pad_layout_draw(ui, frame, layout, full_access);
+    }
     return NavAction::none;
 }
 
@@ -75,8 +79,8 @@ static NavAction draw_title_bar(const TouchUi* ui, const char* host, int32_t por
     return action;
 }
 
-NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, bool full_access, const RemoteStream* stream,
-                                  PadLayouts* layouts, PadEditor* editor)
+NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, bool full_access, bool show_touch,
+                                  const RemoteStream* stream, PadLayouts* layouts, PadEditor* editor)
 {
     const RetroUiPalette* palette = &ui->palette;
     float width = touch_ui_width(ui);
@@ -131,7 +135,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t p
                     action = NavAction::gamepad;
                 }
             }
-            NavAction pad = draw_pad(ui, &frame, below, editor, full_access);
+            NavAction pad = draw_pad(ui, &frame, below, editor, full_access, show_touch);
             return pad != NavAction::none ? pad : action;
         }
 
@@ -140,7 +144,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t p
         PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_portrait);
         PadFrame overlay_frame = pad_frame_fit(ui, overlay->width, overlay->height);
         NavAction icons = editor->active ? NavAction::none : draw_title_bar(ui, host, port);
-        NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor, full_access);
+        NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor, full_access, show_touch);
         return pad != NavAction::none ? pad : icons;
     }
 
@@ -150,6 +154,6 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t p
     PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_landscape);
     PadFrame frame = pad_frame_fit_bottom(ui, overlay->width, overlay->height);
     NavAction icons = editor->active ? NavAction::none : draw_title_bar(ui, host, port);
-    NavAction pad = draw_pad(ui, &frame, overlay, editor, full_access);
+    NavAction pad = draw_pad(ui, &frame, overlay, editor, full_access, show_touch);
     return pad != NavAction::none ? pad : icons;
 }

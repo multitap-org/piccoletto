@@ -135,6 +135,9 @@ set(PICCOLETTO_SOURCES
     src/app_settings.cpp
     src/settings_screen.cpp
     src/title_bar.cpp
+    src/touch_fingers.cpp
+    src/haptics.cpp
+    src/real_gamepad.cpp
 )
 if(ANDROID)
     # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):
