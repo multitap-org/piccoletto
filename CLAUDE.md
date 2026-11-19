@@ -82,7 +82,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_AS_ERR
 cmake --build build && ctest --test-dir build
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_AS_ERRORS=ON -DMULTITAP_SANITIZE=ON
 cmake --build build-asan && (cd build-asan && LSAN_OPTIONS=suppressions=$PWD/../tools/lsan-suppressions.txt ctest)
-./build/piccoletto        # a phone-shaped window on the desktop
+./build/piccoletto        # a phone-shaped window; normal builds also copy it to ~/.local/share/piccoletto/
 ```
 
 12 tests (the libraries'). Before calling a larger change done: warnings as

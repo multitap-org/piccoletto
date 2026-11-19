@@ -30,6 +30,27 @@ option(MULTITAP_WARNINGS_AS_ERRORS "Treat warnings in our own code as errors"   
 option(MULTITAP_SANITIZE           "Build our own code with ASan + UBSan"         OFF)
 option(MULTITAP_BUILD_TESTS        "Build tests and register CTest tests"         ON)
 
+# Where builds are copied so they're easy to find and run, like piccolo's:
+# Linux $XDG_DATA_HOME/piccoletto (default ~/.local/share/piccoletto), macOS
+# ~/Library/Application Support/piccoletto, Windows %USERPROFILE%/piccoletto.
+# Not from sanitizer builds (they need the ASan runtime). Empty = don't copy.
+if(MULTITAP_SANITIZE)
+    set(_programs_base "")
+elseif(WIN32)
+    set(_programs_base "$ENV{USERPROFILE}")
+elseif(APPLE)
+    set(_programs_base "$ENV{HOME}/Library/Application Support")
+elseif(DEFINED ENV{XDG_DATA_HOME} AND IS_ABSOLUTE "$ENV{XDG_DATA_HOME}")
+    set(_programs_base "$ENV{XDG_DATA_HOME}")
+else()
+    set(_programs_base "$ENV{HOME}/.local/share")
+endif()
+set(_piccoletto_dir_default "")
+if(_programs_base)
+    set(_piccoletto_dir_default "${_programs_base}/piccoletto")
+endif()
+set(MULTITAP_PICCOLETTO_DIR "${_piccoletto_dir_default}" CACHE PATH "Copy piccoletto here after building (empty = don't)")
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
@@ -114,3 +135,4 @@ target_include_directories(piccoletto PRIVATE "${PICCOLETTO_GENERATED}")
 message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 
 multitap_set_project_flags(piccoletto)
+multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
