@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "screens.h"
 #include "touch_ui.h"
 
 // What the host granted this phone when it was paired (decided on the host's
@@ -26,16 +27,6 @@ struct HomeHost
     HostAccess  access  = {};
 };
 
-enum class HomeAction
-{
-    none,
-    gamepad,
-    remote_play,
-    devices,
-    pair,
-    menu,
-};
-
 struct HomeScreen
 {
     int32_t selected = 0;   // the host on the big card
@@ -43,5 +34,5 @@ struct HomeScreen
 
 // Draws HOME between touch_ui_begin_screen / end. Returns what was tapped
 // (for the selected host, home->selected).
-HomeAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
+NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
                             int32_t found_count);

@@ -68,9 +68,18 @@ pointers), big features on a branch until Andrés says to merge. Trailer:
 
 ```
 CMakeLists.txt     options, SDL, Vulkan, imgui, the libraries, piccoletto
-src/main.cpp       the app: window, theme, the current screen
-src/touch_ui.*     flat touch widgets: screen, text (normal / big), rects, buttons (normal, primary, ghost, card, plain)
-src/home_screen.*  HOME: card of the selected host with its granted modes, other hosts as rows, PAIR A DEVICE
+src/main.cpp            the app: window, theme, screens (NavAction), the ☰ sheet, ROTATE, back key;
+                        --screen home|pair|gamepad|remote_play|devices, --landscape for testing
+src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
+                        buttons (normal, primary, ghost, card, plain, field)
+src/screens.h           Screen, NavAction (what a tap asks for)
+src/home_screen.*       HOME: card of the selected host with its granted modes, other hosts as rows, PAIR A DEVICE
+src/pair_screen.*       PAIR: pick a found host (or an address), 6-digit code, keypad
+src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held) as dp tables, fitted to the screen
+src/gamepad_screen.*    GAMEPAD: portrait (header + pad) and landscape (the pad picture's shape)
+src/remote_play_screen.* REMOTE PLAY: bezel flush with the edges, 8:7 picture placeholder, controls
+src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (placeholder devices)
+src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, ROTATE, LEAVE
 tools/             lsan-suppressions.txt
 ```
 
@@ -91,8 +100,12 @@ ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 
 ## Current state (2026-11-19)
 
-- Desktop build (Linux): window, BLUE theme, HOME with placeholder hosts
-  (selecting a row puts it on the card; the buttons only log).
+- Desktop build (Linux): every screen (HOME, PAIR, GAMEPAD, REMOTE PLAY,
+  DEVICES) in portrait and landscape with placeholder data, the ☰ sheet,
+  ROTATE (swaps the window's sides; on a phone it will lock the orientation),
+  back = Escape / Android's back. Nothing goes over the network yet; pad parts
+  light with one pointer (the mouse), multi-touch comes with the input.
+- Not yet: EDIT LAYOUT (moving the pad's buttons), HOME's ☰ (settings, theme).
 - Next: Android build (piccolo's `android` branch has the SDL setup; Andrés
   asked for NativeActivity, but SDL3 on Android runs through its SDLActivity:
   to settle), the GAMEPAD screen, pairing (needs the piccolo side), then

@@ -35,6 +35,11 @@ int32_t touch_ui_scale_for(float width, float height);
 void touch_ui_begin_screen(const TouchUi* ui, const char* id);
 void touch_ui_end_screen();
 
+// An overlay (a sheet over a screen): a transparent window over the whole
+// display, above the screen, so the screen behind takes no taps while it's
+// up. Close with touch_ui_end_screen().
+void touch_ui_begin_overlay(const TouchUi* ui, const char* id);
+
 // The screen's size in retro pixels.
 float touch_ui_width(const TouchUi* ui);
 float touch_ui_height(const TouchUi* ui);
@@ -61,6 +66,7 @@ enum class TouchButton
     ghost,     // only an outline
     card,      // a card you can tap (a row in a list): no lip
     plain,     // only the label (an icon in a header)
+    field,     // a pad part's colors (on a pad's body): no lip
 };
 
 // A button you can tap: the label centered (or, for `card`, at the left).
@@ -68,3 +74,15 @@ enum class TouchButton
 // pressed. True when tapped. `id` must be unique on the screen.
 bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float width, float height,
                      const char* label, TouchButton style, TouchText size);
+
+// A touch area with nothing drawn (the caller draws it): true when tapped,
+// *held while a finger (the mouse) is on it.
+bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held);
+
+// A light the height of a letter at (x, y + 2): online green, or `argb`.
+constexpr float TOUCH_UI_LAMP = 5.0f;
+constexpr uint32_t TOUCH_UI_LAMP_ONLINE = 0xFF3AD15Au;
+void touch_ui_lamp(const TouchUi* ui, float x, float y, uint32_t argb);
+
+// Where text of `size` goes to look centered in a box `height` tall at `y`.
+float touch_ui_centered_text_y(const TouchUi* ui, float y, float height, TouchText size);

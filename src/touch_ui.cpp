@@ -65,6 +65,23 @@ void touch_ui_begin_screen(const TouchUi* ui, const char* id)
     ImGui::GetWindowDrawList()->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest, nullptr);
 }
 
+void touch_ui_begin_overlay(const TouchUi* ui, const char* id)
+{
+    (void)ui;
+    const ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+    ImGui::SetNextWindowSize(io.DisplaySize);
+    ImGui::SetNextWindowFocus();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_NoBackground;
+    ImGui::Begin(id, nullptr, flags);
+    ImGui::GetWindowDrawList()->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest, nullptr);
+}
+
 void touch_ui_end_screen()
 {
     ImGui::GetWindowDrawList()->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear, nullptr);
@@ -109,7 +126,7 @@ void touch_ui_rect(const TouchUi* ui, float x, float y, float width, float heigh
 // Where text of `size` goes to look centered in a box `height` tall: the
 // letters are rows 2..6 of the font's 8-row cell, so the cell sits half a
 // font pixel higher than plain centering would put it.
-static float centered_text_y(const TouchUi* ui, float y, float height, TouchText size)
+float touch_ui_centered_text_y(const TouchUi* ui, float y, float height, TouchText size)
 {
     float font_pixel = font_scale(ui, size) / static_cast<float>(ui->scale);
     float cell = touch_ui_text_height(ui, size);
@@ -137,6 +154,12 @@ bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float 
     {
         face = pressed ? palette->highlight : palette->panel_face;
         text = palette->text_highlight;
+        lip = false;
+    }
+    else if (style == TouchButton::field)
+    {
+        face = pressed ? palette->highlight : palette->field_face;
+        text = palette->field_text;
         lip = false;
     }
     else if (style == TouchButton::ghost || style == TouchButton::plain)
@@ -184,7 +207,20 @@ bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float 
         bool left = style == TouchButton::card || style == TouchButton::ghost;
         float text_x = left ? x + 10.0f
                                                                                  : std::floor(x + (width - text_width) * 0.5f);
-        touch_ui_text(ui, text_x, centered_text_y(ui, face_top, face_height, size), label, text, size);
+        touch_ui_text(ui, text_x, touch_ui_centered_text_y(ui, face_top, face_height, size), label, text, size);
     }
     return tapped;
+}
+
+bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held)
+{
+    ImGui::SetCursorScreenPos(ImVec2(px(ui, x), px(ui, y)));
+    bool tapped = ImGui::InvisibleButton(id, ImVec2(px(ui, x + width) - px(ui, x), px(ui, y + height) - px(ui, y)));
+    *held = ImGui::IsItemActive();
+    return tapped;
+}
+
+void touch_ui_lamp(const TouchUi* ui, float x, float y, uint32_t argb)
+{
+    touch_ui_rect(ui, x, y + 2.0f, TOUCH_UI_LAMP, TOUCH_UI_LAMP, argb);
 }

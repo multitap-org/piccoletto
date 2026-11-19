@@ -2,7 +2,7 @@
 
 #include <cstdio>
 
-#include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_MENU
+#include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_MENU, _ROTATE
 
 // Layout, in retro pixels (half the mockups' dp).
 constexpr float MARGIN        = 8.0f;
@@ -13,16 +13,14 @@ constexpr float SMALL_BUTTON  = 28.0f;   // REMOTE PLAY, DEVICES
 constexpr float BUTTON_GAP    = 4.0f;
 constexpr float ROW_HEIGHT    = 36.0f;
 constexpr float PAIR_HEIGHT   = 32.0f;
-constexpr float LAMP          = 5.0f;    // the online light: as tall as a letter
-
-constexpr uint32_t LAMP_ONLINE = 0xFF3AD15Au;
+constexpr float LAMP          = TOUCH_UI_LAMP;
 
 // A light and a status word ("ONLINE"), the light level with the letters
 // (rows 2..6 of the font's cell).
 static void draw_status(const TouchUi* ui, float x, float y, bool online, const char* word)
 {
     const RetroUiPalette* palette = &ui->palette;
-    touch_ui_rect(ui, x, y + 2.0f, LAMP, LAMP, online ? LAMP_ONLINE : palette->text_disabled);
+    touch_ui_lamp(ui, x, y, online ? TOUCH_UI_LAMP_ONLINE : palette->text_disabled);
     if (word != nullptr)
     {
         touch_ui_text(ui, x + LAMP + 5.0f, y, word, palette->text_disabled, TouchText::normal);
@@ -50,7 +48,7 @@ static float card_buttons_height(const HostAccess* access)
 }
 
 // The selected host: status, name, game, and its modes at the bottom.
-static HomeAction draw_card(const TouchUi* ui, const HomeHost* host, float x, float y, float width, float height)
+static NavAction draw_card(const TouchUi* ui, const HomeHost* host, float x, float y, float width, float height)
 {
     const RetroUiPalette* palette = &ui->palette;
     touch_ui_rect(ui, x, y, width, height, palette->panel_face);
@@ -69,17 +67,17 @@ static HomeAction draw_card(const TouchUi* ui, const HomeHost* host, float x, fl
 
     if (!host->online)
     {
-        return HomeAction::none;   // nothing to connect to: no buttons
+        return NavAction::none;   // nothing to connect to: no buttons
     }
 
-    HomeAction action = HomeAction::none;
+    NavAction action = NavAction::none;
     float button_y = y + height - CARD_PADDING - card_buttons_height(&host->access);
     if (host->access.gamepad)
     {
         if (touch_ui_button(ui, "##gamepad", inner_x, button_y, inner_width, MAIN_BUTTON, "GAMEPAD",
                             TouchButton::primary, TouchText::big))
         {
-            action = HomeAction::gamepad;
+            action = NavAction::gamepad;
         }
         button_y += MAIN_BUTTON + BUTTON_GAP;
     }
@@ -93,7 +91,7 @@ static HomeAction draw_card(const TouchUi* ui, const HomeHost* host, float x, fl
             if (touch_ui_button(ui, "##remote_play", small_x, button_y, small_width, SMALL_BUTTON, "REMOTE PLAY",
                                 TouchButton::normal, TouchText::normal))
             {
-                action = HomeAction::remote_play;
+                action = NavAction::remote_play;
             }
             small_x += small_width + BUTTON_GAP;
         }
@@ -102,7 +100,7 @@ static HomeAction draw_card(const TouchUi* ui, const HomeHost* host, float x, fl
             if (touch_ui_button(ui, "##devices", small_x, button_y, small_width, SMALL_BUTTON, "DEVICES",
                                 TouchButton::normal, TouchText::normal))
             {
-                action = HomeAction::devices;
+                action = NavAction::devices;
             }
         }
     }
@@ -167,13 +165,13 @@ static bool draw_pair_button(const TouchUi* ui, int32_t found_count, float x, fl
     return tapped;
 }
 
-HomeAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
+NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
                             int32_t found_count)
 {
     float width = touch_ui_width(ui);
     float height = touch_ui_height(ui);
     bool landscape = width > height;
-    HomeAction action = HomeAction::none;
+    NavAction action = NavAction::none;
     if (home->selected < 0 || home->selected >= host_count)
     {
         home->selected = 0;
@@ -183,10 +181,15 @@ HomeAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost*
     float header_y = landscape ? 6.0f : MARGIN;
     float title_y = header_y + (HEADER_HEIGHT - touch_ui_text_height(ui, TouchText::big)) * 0.5f;
     touch_ui_text(ui, MARGIN + 4.0f, title_y, "piccoletto", ui->palette.text_highlight, TouchText::big);
+    if (touch_ui_button(ui, "##rotate", width - MARGIN - 2.0f * HEADER_HEIGHT, header_y, HEADER_HEIGHT, HEADER_HEIGHT,
+                        PIXEL_FONT_UTF8_ROTATE, TouchButton::plain, TouchText::big))
+    {
+        action = NavAction::rotate;
+    }
     if (touch_ui_button(ui, "##menu", width - MARGIN - HEADER_HEIGHT, header_y, HEADER_HEIGHT, HEADER_HEIGHT,
                         PIXEL_FONT_UTF8_MENU, TouchButton::plain, TouchText::big))
     {
-        action = HomeAction::menu;
+        action = NavAction::menu;
     }
 
     float content_y = header_y + HEADER_HEIGHT + (landscape ? 6.0f : 12.0f);
@@ -197,13 +200,13 @@ HomeAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost*
         float right_x = MARGIN + column + MARGIN;
         if (host_count > 0)
         {
-            HomeAction card = draw_card(ui, &hosts[home->selected], MARGIN, content_y, column, height - content_y - MARGIN);
-            action = card != HomeAction::none ? card : action;
+            NavAction card = draw_card(ui, &hosts[home->selected], MARGIN, content_y, column, height - content_y - MARGIN);
+            action = card != NavAction::none ? card : action;
         }
         draw_rows(home, ui, hosts, host_count, right_x, content_y, column);
         if (draw_pair_button(ui, found_count, right_x, height - MARGIN - PAIR_HEIGHT, column))
         {
-            action = HomeAction::pair;
+            action = NavAction::pair;
         }
         return action;
     }
@@ -213,14 +216,14 @@ HomeAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost*
     if (host_count > 0)
     {
         float card = card_height(ui, &hosts[home->selected]);
-        HomeAction tapped = draw_card(ui, &hosts[home->selected], MARGIN, y, column, card);
-        action = tapped != HomeAction::none ? tapped : action;
+        NavAction tapped = draw_card(ui, &hosts[home->selected], MARGIN, y, column, card);
+        action = tapped != NavAction::none ? tapped : action;
         y += card + MARGIN;
     }
     draw_rows(home, ui, hosts, host_count, MARGIN, y, column);
     if (draw_pair_button(ui, found_count, MARGIN, height - 12.0f - PAIR_HEIGHT, column))
     {
-        action = HomeAction::pair;
+        action = NavAction::pair;
     }
     return action;
 }
