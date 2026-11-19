@@ -99,15 +99,17 @@ float title_bar_port_leds(const TouchUi* ui, float x, float y, int32_t port)
     return static_cast<float>(TITLE_BAR_PORTS) * (LED_SIZE + LED_GAP) - LED_GAP;
 }
 
-void title_bar_status(const TouchUi* ui, const char* host, int32_t port, const char* latency, uint32_t text_argb)
+void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb)
 {
-    char text[96];
-    std::snprintf(text, sizeof(text), "%s · %s", host, latency);
-    float leds_width = static_cast<float>(TITLE_BAR_PORTS) * (LED_SIZE + LED_GAP) - LED_GAP;
-    float gap = 6.0f;
-    float total = leds_width + gap + touch_ui_text_width(ui, text, TouchText::normal);
-    float x = std::floor((touch_ui_width(ui) - total) * 0.5f);
+    float x = std::floor((touch_ui_width(ui) - touch_ui_text_width(ui, host, TouchText::normal)) * 0.5f);
     float y = touch_ui_centered_text_y(ui, title_bar_y(ui), TITLE_BAR_ICON, TouchText::normal);
-    x += title_bar_port_leds(ui, x, y, port) + gap;
-    touch_ui_text(ui, x, y, text, text_argb, TouchText::normal);
+    touch_ui_text(ui, x, y, host, text_argb, TouchText::normal);
+}
+
+void title_bar_pad_status(const TouchUi* ui, int32_t port, const char* latency, uint32_t text_argb)
+{
+    float x = TITLE_BAR_MARGIN;
+    float y = touch_ui_height(ui) - TITLE_BAR_MARGIN - touch_ui_text_height(ui, TouchText::normal);
+    x += title_bar_port_leds(ui, x, y, port) + 6.0f;
+    touch_ui_text(ui, x, y, latency, text_argb, TouchText::normal);
 }

@@ -195,6 +195,13 @@ PadFrame pad_frame_fit(const TouchUi* ui, float width, float height)
     return pad_frame_fit_into(width, height, 0.0f, 0.0f, touch_ui_width(ui), touch_ui_height(ui));
 }
 
+PadFrame pad_frame_fit_bottom(const TouchUi* ui, float width, float height)
+{
+    PadFrame frame = pad_frame_fit(ui, width, height);
+    frame.y = std::floor(touch_ui_height(ui) - height * frame.dp_scale);
+    return frame;
+}
+
 float pad_x(const PadFrame* frame, float dp)
 {
     return frame->x + dp * frame->dp_scale;
@@ -287,11 +294,15 @@ static void stick_position(const TouchUi* ui, float x, float y, float width, flo
     *stick_y = stick_axis(finger_y, y, height);
 }
 
-int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout)
+int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout, bool full_access)
 {
     int32_t held_count = 0;
     for (int32_t i = 0; i < layout->count; i++)
     {
+        if (layout->parts[i].kind == PadPartKind::hotkey && !full_access)
+        {
+            continue;
+        }
         float x = 0.0f;
         float y = 0.0f;
         float width = 0.0f;

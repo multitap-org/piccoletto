@@ -23,6 +23,8 @@ enum class PadPartKind
 {
     button,   // a block with its label
     stick,    // a block with a nub in the middle
+    hotkey,   // a button held with another one for piccolo's hotkeys: only
+              // for a phone the host gave full access
 };
 
 // What moves together in EDIT LAYOUT.
@@ -111,14 +113,18 @@ PadFrame pad_frame_fit_into(float width, float height, float x, float y, float r
 // The same over the whole screen.
 PadFrame pad_frame_fit(const TouchUi* ui, float width, float height);
 
+// As big as it fits on the screen, centered across and at the bottom (the
+// landscape pads: what's left over goes under the title bar's row).
+PadFrame pad_frame_fit_bottom(const TouchUi* ui, float width, float height);
+
 // Reference dp to the screen's retro pixels.
 float pad_x(const PadFrame* frame, float dp);
 float pad_y(const PadFrame* frame, float dp);
 float pad_size(const PadFrame* frame, float dp);
 
-// Draws the layout's parts (at its alpha, the held ones lit). Returns how
-// many are held now.
-int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout);
+// Draws the layout's parts (at its alpha, the held ones lit); the hotkey
+// button only with `full_access`. Returns how many are held now.
+int32_t pad_layout_draw(const TouchUi* ui, const PadFrame* frame, const PadLayout* layout, bool full_access);
 
 // One part at screen position (retro pixels), at `alpha`; `held` lit;
 // `overlay`: in the button color (over a picture) instead of the field color

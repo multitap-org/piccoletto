@@ -32,6 +32,8 @@ bool title_bar_back(const TouchUi* ui);
 constexpr int32_t TITLE_BAR_PORTS = 4;
 float title_bar_port_leds(const TouchUi* ui, float x, float y, int32_t port);
 
-// The pads' status in the middle of the title bar's row: the port LEDs, the
-// host and the ping.
-void title_bar_status(const TouchUi* ui, const char* host, int32_t port, const char* latency, uint32_t text_argb);
+// The pads' title: the host in the middle of the title bar's row.
+void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb);
+
+// The pads' status in the screen's bottom left corner: the port LEDs and the ping.
+void title_bar_pad_status(const TouchUi* ui, int32_t port, const char* latency, uint32_t text_argb);

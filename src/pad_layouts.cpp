@@ -5,6 +5,7 @@
 // Short names for the tables.
 constexpr PadPartKind BUTTON = PadPartKind::button;
 constexpr PadPartKind STICK = PadPartKind::stick;
+constexpr PadPartKind HOTKEY = PadPartKind::hotkey;
 constexpr TouchText NORMAL = TouchText::normal;
 constexpr TouchText BIG = TouchText::big;
 constexpr PadGroup LSH = PadGroup::left_shoulders;
@@ -17,7 +18,8 @@ constexpr PadGroup RSTICK = PadGroup::right_stick;
 
 // GAMEPAD, portrait (390 x 844 dp): shoulders on top, the body below with the
 // d-pad and the face buttons, SELECT / START / the piccolo menu, both sticks
-// at the bottom. (The header line is the screen's, not the layout's.)
+// at the bottom; HOTKEY under SELECT / START (only with full access). (The
+// header line is the screen's, not the layout's.)
 static const PadPart GAMEPAD_PORTRAIT[] = {
     {"##l2", "L2", 16, 92, 160, 40, BUTTON, NORMAL, LSH},
     {"##l", "L", 16, 140, 160, 44, BUTTON, NORMAL, LSH},
@@ -34,7 +36,7 @@ static const PadPart GAMEPAD_PORTRAIT[] = {
     {"##a", "A", 314, 328, 56, 56, BUTTON, BIG, FACE},
     {"##select", "SELECT", 100, 496, 88, 44, BUTTON, NORMAL, CENTER},
     {"##start", "START", 202, 496, 88, 44, BUTTON, NORMAL, CENTER},
-    {"##guide", PIXEL_FONT_UTF8_MENU, 167, 556, 56, 40, BUTTON, NORMAL, CENTER},
+    {"##hotkey", "HOTKEY", 155, 556, 80, 40, HOTKEY, NORMAL, CENTER},
     {"##lstick", "", 48, 652, 112, 112, STICK, NORMAL, LSTICK},
     {"##rstick", "", 230, 652, 112, 112, STICK, NORMAL, RSTICK},
 };
@@ -44,7 +46,8 @@ static const PadPart GAMEPAD_PORTRAIT[] = {
 // or see-through over the picture (REMOTE PLAY). The shoulders under the
 // title bar's row (back, the port LEDs, the icons), the d-pad on the left,
 // the face buttons on the right (all four the same size), the sticks inside,
-// SELECT / the piccolo menu / START in a row at the bottom.
+// SELECT / HOTKEY / START in a row at the bottom (HOTKEY only with full
+// access); the port LEDs and the ping in the bottom left corner.
 static const PadPart LANDSCAPE_PAD[] = {
     {"##l2", "L2", 16, 68, 140, 34, BUTTON, NORMAL, LSH},
     {"##l", "L", 164, 68, 150, 34, BUTTON, NORMAL, LSH},
@@ -61,9 +64,9 @@ static const PadPart LANDSCAPE_PAD[] = {
     {"##b", "B", 680, 252, 64, 64, BUTTON, BIG, FACE},
     {"##lstick", "", 230, 256, 80, 80, STICK, NORMAL, LSTICK},
     {"##rstick", "", 534, 256, 80, 80, STICK, NORMAL, RSTICK},
-    {"##select", "SELECT", 290, 346, 84, 36, BUTTON, NORMAL, CENTER},
-    {"##guide", PIXEL_FONT_UTF8_MENU, 392, 346, 60, 36, BUTTON, NORMAL, CENTER},
-    {"##start", "START", 470, 346, 84, 36, BUTTON, NORMAL, CENTER},
+    {"##select", "SELECT", 268, 350, 84, 36, BUTTON, NORMAL, CENTER},
+    {"##hotkey", "HOTKEY", 360, 350, 124, 36, HOTKEY, NORMAL, CENTER},
+    {"##start", "START", 492, 350, 84, 36, BUTTON, NORMAL, CENTER},
 };
 
 // REMOTE PLAY, portrait, under the picture (390 x 380 dp: the controls of the

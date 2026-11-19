@@ -70,6 +70,14 @@ static const char* selected_host(const App* app)
     return PLACEHOLDER_HOSTS[app->home.selected].name;
 }
 
+// Full access: the host granted this phone every mode (for now the HOTKEY
+// button; the access levels are still to be defined).
+static bool selected_full_access(const App* app)
+{
+    const HostAccess* access = &PLACEHOLDER_HOSTS[app->home.selected].access;
+    return access->gamepad && access->remote_play && access->devices;
+}
+
 // piccoletto's folder, like piccolo's (frontends-common's app_paths.h):
 // $XDG_DATA_HOME/piccoletto or ~/.local/share/piccoletto; where SDL keeps an
 // app's files elsewhere (Android). Its settings/ folder is made here.
@@ -317,10 +325,12 @@ static void draw_screen(App* app)
             }
             break;
         case Screen::gamepad:
-            action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, &app->layouts, &app->editor);
+            action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), &app->layouts,
+                                         &app->editor);
             break;
         case Screen::remote_play:
-            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, &app->stream, &app->layouts, &app->editor);
+            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, selected_full_access(app), &app->stream,
+                                             &app->layouts, &app->editor);
             break;
         case Screen::devices:
             action = devices_screen_draw(&app->devices, &app->ui, selected_host(app));

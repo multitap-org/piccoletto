@@ -77,8 +77,9 @@ src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts
 src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
                         buttons (normal, primary, ghost, card, plain, field)
 src/screens.h           Screen, NavAction (what a tap asks for)
-src/title_bar.*         the title bar's row: back (every screen but HOME), the pads' status (port LEDs, host,
-                        ping), the icons (+ = PAIR A DEVICE with the found count, rotate, ☰; + off on the pads)
+src/title_bar.*         the title bar's row: back (every screen but HOME), the host in the middle (pads), the
+                        icons (+ = PAIR A DEVICE with the found count, rotate, ☰; + off on the pads); the pads'
+                        port LEDs + ping in the bottom left
 src/home_screen.*       HOME: card of the selected host with its granted modes; the other hosts in a sidebar,
                         closed to a tab at the right (landscape) or a bar at the bottom (portrait), up to 80%
 src/pair_screen.*       PAIR: pick a found host (or an address), 6-digit code, keypad
