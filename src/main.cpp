@@ -753,6 +753,15 @@ int main(int argc, char** argv)
         double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
         update_gamepad_ui(app, now);
         hosts_update(&app->hosts, now);
+        // The modes need the host (Andrés): when the connection drops, or
+        // can't be made, back to HOME.
+        bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play ||
+                       app->screen == Screen::devices;
+        if (in_mode && app->hosts.link == LinkStatus::failed)
+        {
+            SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
+            go_to(app, Screen::home);
+        }
         draw_screen(app);
         send_pad(app);
         if (app->fingers.presses > 0 && app->settings.vibrate)
