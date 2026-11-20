@@ -656,11 +656,33 @@ static bool parse_screen(const char* name, Screen* screen)
 
 // REMOTE PLAY: the newest picture uploaded; the stream's shape, or why
 // there's no picture.
+// REMOTE PLAY's pacing (SETTINGS), applied only while it's open: the
+// picture queue, frames in flight, whether the next frame starts late. Not
+// saved anywhere; leaving puts the defaults back.
+static void apply_pacing(App* app)
+{
+    bool playing = app->screen == Screen::remote_play;
+    StreamPacing pacing = playing ? app->settings.pacing : StreamPacing::balanced;
+    uint32_t queue = pacing == StreamPacing::smooth ? 3 : 1;
+    uint32_t in_flight = pacing == StreamPacing::latency ? 1 : FRAMES_IN_FLIGHT;
+    bool start_late = pacing == StreamPacing::latency;
+    hosts_set_frame_queue(&app->hosts, queue);
+    Renderer* renderer = &app->shell.renderer;
+    if (renderer->frames_in_flight != in_flight || renderer->wait_for_present != start_late)
+    {
+        renderer_set_frames_in_flight(renderer, &app->shell.vulkan, in_flight);
+        renderer->wait_for_present = start_late;
+        SDL_Log("REMOTE PLAY pacing: %s", pacing == StreamPacing::latency ? "latency" :
+                                         (pacing == StreamPacing::smooth ? "smooth" : "balanced"));
+    }
+}
+
 static void update_stream(App* app)
 {
     RemoteStream* stream = &app->stream;
     stream->view = &app->stream_view;
     stream->shell = &app->shell;
+    apply_pacing(app);
     if (app->screen != Screen::remote_play)
     {
         return;

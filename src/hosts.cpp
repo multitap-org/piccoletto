@@ -956,6 +956,14 @@ bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* widt
     return hosts->ok && net_client_service_take_frame(&hosts->net, pixels, width, height, format, frame, info);
 }
 
+void hosts_set_frame_queue(Hosts* hosts, uint32_t depth)
+{
+    if (hosts->ok)
+    {
+        net_client_service_set_frame_queue(&hosts->net, depth);
+    }
+}
+
 void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats)
 {
     *stats = NetClientStreamStats{};

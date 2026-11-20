@@ -184,6 +184,8 @@ void hosts_stream_stop(Hosts* hosts);
 // The newest picture, if one came since the last call (net_client_service_take_frame).
 bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* width, uint32_t* height,
                       FramePixelFormat* format, uint32_t* frame, NetStreamInfo* info);
+// How many pictures REMOTE PLAY takes in order (1 = only the newest; net_client_service_set_frame_queue).
+void hosts_set_frame_queue(Hosts* hosts, uint32_t depth);
 // The stream's counts (frames, losses, bytes, audio).
 void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats);
 // Whether a game runs on the connected host: 1 yes, 0 no, -1 not known yet.

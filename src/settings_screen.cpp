@@ -145,12 +145,12 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     }
     y += CONTROL + ROW_GAP;
 
-    y = label(ui, x, y, "REMOTE PLAY QUALITY");
-    const char* qualities[3] = {"LATENCY", "BALANCED", "QUALITY"};
-    int32_t quality = choices(ui, "##quality", qualities, 3, static_cast<int32_t>(settings->quality), x, y, column);
-    if (quality >= 0)
+    y = label(ui, x, y, "REMOTE PLAY PACING");
+    const char* pacings[3] = {"LATENCY", "BALANCED", "SMOOTH"};
+    int32_t pacing = choices(ui, "##pacing", pacings, 3, static_cast<int32_t>(settings->pacing), x, y, column);
+    if (pacing >= 0)
     {
-        settings->quality = static_cast<StreamQuality>(quality);
+        settings->pacing = static_cast<StreamPacing>(pacing);
     }
     y += CONTROL + ROW_GAP;
 
