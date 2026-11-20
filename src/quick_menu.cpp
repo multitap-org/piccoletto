@@ -9,7 +9,9 @@
 #include "shader_presets.h"
 
 // Retro pixels (2 dp each on a phone).
-constexpr float MENU_WIDTH     = 150.0f;   // 300 dp, at most
+// Of the screen's width (Andrés): half in landscape, nearly all of it in portrait.
+constexpr float MENU_SHARE_LANDSCAPE = 0.5f;
+constexpr float MENU_SHARE_PORTRAIT  = 0.9f;
 constexpr float MENU_PADDING   = 7.0f;
 constexpr float MENU_GAP       = 4.0f;
 constexpr float ROW_LANDSCAPE  = 17.0f;    // 34 dp: the landscape screen is only 195 tall
@@ -79,7 +81,7 @@ NavAction quick_menu_draw(QuickMenu* menu, const TouchUi* ui, const QuickMenuInp
     uint32_t dim_alpha = static_cast<uint32_t>(static_cast<float>(DIM >> 24) * eased);
     touch_ui_rect(ui, 0.0f, 0.0f, width, height, (dim_alpha << 24) | (DIM & 0x00FFFFFFu));
 
-    float menu_width = MENU_WIDTH < width - 20.0f ? MENU_WIDTH : width - 20.0f;
+    float menu_width = std::floor(width * (landscape ? MENU_SHARE_LANDSCAPE : MENU_SHARE_PORTRAIT));
     float left = std::floor(width - menu_width * eased);
     touch_ui_rect(ui, left, 0.0f, menu_width, height, palette->panel_face);
 
