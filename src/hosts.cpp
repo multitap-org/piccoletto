@@ -490,6 +490,7 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         if (net_content_read_game_state(event->data, event->size, &hosts->game))
         {
             hosts->game_known = true;
+            SDL_Log("Network: the host %s", hosts->game.running ? "runs a game" : "runs no game");
         }
         return;
     }
@@ -550,7 +551,8 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->game_known = false;
                 if (hosts->stream_flags != 0)
                 {
-                    net_client_service_set_stream(&hosts->net, hosts->stream_flags);
+                    bool asked = net_client_service_set_stream(&hosts->net, hosts->stream_flags);
+                    SDL_Log("Network: remote play %s", asked ? "asked for" : "NOT asked for (not ready)");
                 }
                 uint8_t request[16];
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
@@ -927,8 +929,9 @@ void hosts_stream_start(Hosts* hosts)
     if (hosts->ok && hosts->link == LinkStatus::ready)
     {
         net_client_service_lock(&hosts->net);
-        net_client_service_set_stream(&hosts->net, hosts->stream_flags);
+        bool asked = net_client_service_set_stream(&hosts->net, hosts->stream_flags);
         net_client_service_unlock(&hosts->net);
+        SDL_Log("Network: remote play %s", asked ? "asked for" : "NOT asked for (not ready)");
     }
 }
 
