@@ -68,12 +68,30 @@ find "$apk_dir/classes" -name '*.class' > "$apk_dir/classes.txt"
 echo "== package"
 # Resources: the launcher icon and the TV banner (android/res, exported from assets/branding).
 aapt2 compile --dir "$here/res" -o "$apk_dir/res.zip"
+# Assets: REMOTE PLAY's shader presets (deps/piccolo-shaders) with a list of
+# their files, which the app copies out to its own folder (librashader reads
+# plain files, not the APK).
+rm -rf "$apk_dir/assets"
+mkdir -p "$apk_dir/assets/shaders/presets"
+(cd "$root/deps/piccolo-shaders" && find . -type f ! -path './.git*' | sed 's|^\./||' | sort) > "$apk_dir/presets.txt"
+(cd "$root/deps/piccolo-shaders" && tar cf - -T "$apk_dir/presets.txt") | (cd "$apk_dir/assets/shaders/presets" && tar xf -)
+cp "$apk_dir/presets.txt" "$apk_dir/assets/shaders/presets.txt"
 aapt2 link --manifest "$here/AndroidManifest.xml" -I "$AAPT_ANDROID_JAR" -R "$apk_dir/res.zip" --auto-add-overlay \
-    -o "$apk_dir/unaligned.apk"
+    -A "$apk_dir/assets" -o "$apk_dir/unaligned.apk"
 cp "$native/libmain.so" "$apk_dir/lib/arm64-v8a/libmain.so"
+# librashader (android/build-librashader.sh), loaded at run time: without it,
+# no shaders.
+libs="lib/arm64-v8a/libmain.so"
+if [ -f "$build/librashader/librashader.so" ]; then
+    cp "$build/librashader/librashader.so" "$apk_dir/lib/arm64-v8a/librashader.so"
+    libs="$libs lib/arm64-v8a/librashader.so"
+else
+    echo "note: no android/build/librashader/librashader.so (android/build-librashader.sh): the APK has no shaders"
+fi
 # Paths inside the APK are relative to the folder zip runs in.
 (cd "$apk_dir/dex" && zip -q "$apk_dir/unaligned.apk" classes.dex)
-(cd "$apk_dir" && zip -q "$apk_dir/unaligned.apk" lib/arm64-v8a/libmain.so)
+# shellcheck disable=SC2086
+(cd "$apk_dir" && zip -q "$apk_dir/unaligned.apk" $libs)
 zipalign -f -p 4 "$apk_dir/unaligned.apk" "$apk_dir/aligned.apk"
 
 echo "== sign"

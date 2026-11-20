@@ -64,7 +64,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Submodule check
 # ---------------------------------------------------------------------------
 foreach(_dep imgui/imgui.cpp libsamplerate/src/samplerate.c gamemode/lib/gamemode_client.h enet/host.c
-             monocypher/src/monocypher.c
+             monocypher/src/monocypher.c librashader/include/librashader.h piccolo-shaders/README.md
              common/hosts-common/CMakeLists.txt common/frontends-common/CMakeLists.txt
              common/retroui/CMakeLists.txt)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/${_dep}")
@@ -130,6 +130,7 @@ set(PICCOLETTO_SOURCES
     src/gamepad_screen.cpp
     src/remote_play_screen.cpp
     src/stream_view.cpp
+    src/shader_presets.cpp
     src/pair_screen.cpp
     src/devices_screen.cpp
     src/pad_layouts.cpp
@@ -167,6 +168,24 @@ message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 multitap_set_project_flags(piccoletto)
 if(NOT ANDROID)
     multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
+endif()
+
+# REMOTE PLAY's shaders: piccolo's curated presets (deps/piccolo-shaders, each
+# file under its own license) next to the program in shaders/presets, where
+# shader_presets.h looks. (Android: build-apk.sh puts them in the APK.)
+if(NOT ANDROID)
+    add_custom_command(TARGET piccoletto POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders"
+                "$<TARGET_FILE_DIR:piccoletto>/shaders/presets"
+        COMMENT "Copying the shader presets next to piccoletto"
+        VERBATIM)
+    if(MULTITAP_PICCOLETTO_DIR)
+        add_custom_target(copy_piccoletto_presets ALL
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders"
+                    "${MULTITAP_PICCOLETTO_DIR}/shaders/presets"
+            COMMENT "Copying the shader presets to ${MULTITAP_PICCOLETTO_DIR}/shaders/presets"
+            VERBATIM)
+    endif()
 endif()
 
 if(MULTITAP_BUILD_TESTS)

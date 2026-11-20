@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "settings_file.h"
+#include "shader_presets.h"
 
 static const char* const THEME_KEYS[] = {"blue", "purple", "zsnes", "black"};
 static const char* const THEME_NAMES[] = {"BLUE", "PURPLE", "ZSNES", "BLACK"};
@@ -60,6 +61,8 @@ void app_settings_load(AppSettings* settings, const SettingsFile* file)
     }
     settings->pacing = static_cast<StreamPacing>(
         find_key(settings_file_get(file, "", "remote_play_pacing"), PACING_KEYS, static_cast<int32_t>(StreamPacing::count), 1));
+    const char* shader = settings_file_get(file, "", "remote_play_shader");
+    settings->shader = shader != nullptr ? shader_preset_find(shader) : 0;
 }
 
 void app_settings_save(const AppSettings* settings, SettingsFile* file)
@@ -72,4 +75,5 @@ void app_settings_save(const AppSettings* settings, SettingsFile* file)
     std::snprintf(value, sizeof(value), "%.2f", static_cast<double>(settings->overlay_opacity));
     settings_file_set(file, "", "overlay_opacity", value);
     settings_file_set(file, "", "remote_play_pacing", PACING_KEYS[static_cast<int32_t>(settings->pacing)]);
+    settings_file_set(file, "", "remote_play_shader", shader_preset(settings->shader)->key);
 }

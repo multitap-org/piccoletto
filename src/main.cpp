@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -33,6 +34,7 @@
 #include "screens.h"
 #include "settings_file.h"
 #include "settings_screen.h"
+#include "shader_presets.h"
 #include "stream_view.h"
 #include "touch_fingers.h"
 #include "touch_ui.h"
@@ -52,6 +54,10 @@ struct App
     PadEditor      editor     = {};
     RemoteStream   stream     = {};   // the stream's shape (placeholder until there's one)
     StreamView     stream_view = {};  // REMOTE PLAY's picture
+    ShaderLibrary  shader_library = {};   // librashader, when it's there (REMOTE PLAY SHADER)
+    std::string    presets_dir;           // shaders/presets next to the program
+    int32_t        shader_applied = -1;   // the preset index stream_view has (-1 = none asked yet)
+    std::string    shader_path;           // its file
     NetClientStreamStats stream_last = {};   // the stream's counts a second ago
     double         stream_sampled = 0.0;     // when they were taken
     PadLink        stream_rates = {};        // the last second's fps, rate, losses
@@ -703,6 +709,14 @@ static void update_stream(App* app)
         return;
     }
     StreamView* view = &app->stream_view;
+    // The shader preset: loaded only when the choice changes (it waits for the GPU).
+    if (app->settings.shader != app->shader_applied)
+    {
+        app->shader_applied = app->settings.shader;
+        const ShaderPreset* preset = shader_preset(app->settings.shader);
+        app->shader_path = preset->key[0] != '\0' ? app->presets_dir + "/" + preset->key : std::string();
+        stream_view_set_shader(view, &app->shader_library, &app->shell, app->shader_path.c_str());
+    }
     stream_view_update(view, &app->hosts, &app->shell);
     // The last second's rates, for the status line.
     double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
@@ -858,6 +872,27 @@ int main(int argc, char** argv)
         hosts_create(&app->hosts, app->settings_dir.c_str(), app->settings.phone_name);
     }
     haptics_open(&app->haptics);
+    // librashader (REMOTE PLAY SHADER): next to the program, or where the
+    // system finds it (Android: the APK's lib folder). Without it, no shaders.
+    {
+        std::vector<std::string> folders;
+        const char* base = SDL_GetBasePath();
+        if (base != nullptr)
+        {
+            folders.push_back(base);
+            app->presets_dir = std::string(base) + "shaders/presets";
+        }
+        shader_library_load(&app->shader_library, folders);
+#if defined(SDL_PLATFORM_ANDROID)
+        // The presets live in the APK; librashader reads plain files.
+        if (!app->settings_dir.empty())
+        {
+            std::string shaders = app->settings_dir + "/../shaders";
+            shader_presets_unpack(shaders.c_str(), PICCOLETTO_VERSION);
+            app->presets_dir = shaders + "/presets";
+        }
+#endif
+    }
 
     go_to(app, first);
     app->editor.active = edit && (first == Screen::gamepad || first == Screen::remote_play);
@@ -910,6 +945,7 @@ int main(int argc, char** argv)
     haptics_close(&app->haptics);
     hosts_destroy(&app->hosts);
     stream_view_destroy(&app->stream_view, &app->shell);
+    shader_library_unload(&app->shader_library);
     real_gamepad_close(&app->gamepad);
     app_shell_destroy(&app->shell);
     delete app;
