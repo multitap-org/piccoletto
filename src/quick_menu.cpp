@@ -41,6 +41,8 @@ const char* nav_action_name(NavAction action)
         case NavAction::settings:    return "SETTINGS";
         case NavAction::touch_controls: return "TOUCH CONTROLS";
         case NavAction::measure:     return "MEASURE";
+        case NavAction::go_headless: return "GO HEADLESS";
+        case NavAction::play_on_host: return "PLAY ON THE HOST";
         default:                     return "?";
     }
 }
@@ -153,11 +155,23 @@ NavAction quick_menu_draw(QuickMenu* menu, const TouchUi* ui, const QuickMenuInp
     }
 
     // The rest: two columns in landscape (it has to fit 195 retro pixels), one in portrait.
-    const char* labels[4] = {};
-    NavAction actions[4] = {};
+    const char* labels[5] = {};
+    NavAction actions[5] = {};
     int32_t count = 0;
     labels[count] = "EDIT LAYOUT";
     actions[count++] = NavAction::edit_layout;
+    char play_on[48];
+    if (input->headless == HeadlessItem::go)
+    {
+        labels[count] = "GO HEADLESS";
+        actions[count++] = NavAction::go_headless;
+    }
+    else if (input->headless == HeadlessItem::give_back)
+    {
+        std::snprintf(play_on, sizeof(play_on), "PLAY ON %s", input->host);
+        labels[count] = play_on;
+        actions[count++] = NavAction::play_on_host;
+    }
     if (input->devices)
     {
         labels[count] = "DEVICES";

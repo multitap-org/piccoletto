@@ -25,6 +25,14 @@ struct QuickMenu
     bool  settings_changed = false;  // SHADER or PACING changed: save them when it closes
 };
 
+// GO HEADLESS's item (REMOTE PLAY while streaming).
+enum class HeadlessItem
+{
+    none,
+    go,          // GO HEADLESS
+    give_back,   // PLAY ON <host>
+};
+
 struct QuickMenuInput
 {
     Screen      current = Screen::gamepad;   // the screen it's over (it offers the other one)
@@ -33,6 +41,7 @@ struct QuickMenuInput
     bool        devices = false;             // FULL access: DEVICES
     bool        touch_toggle = false;        // REMOTE PLAY with a real gamepad: SHOW / HIDE TOUCH CONTROLS
     bool        touch_shown = false;
+    HeadlessItem headless = HeadlessItem::none;   // `host` names the host for giving it back
 };
 
 // Starts it sliding in from the right.

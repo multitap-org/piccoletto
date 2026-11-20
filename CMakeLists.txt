@@ -67,7 +67,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---------------------------------------------------------------------------
 # Submodule check
 # ---------------------------------------------------------------------------
-foreach(_dep imgui/imgui.cpp libsamplerate/src/samplerate.c gamemode/lib/gamemode_client.h enet/host.c
+foreach(_dep imgui/imgui.cpp libsamplerate/src/samplerate.c gamemode/lib/gamemode_client.h enet/include/enet.h
+             beacon/wire/beacon_wire.cpp
              monocypher/src/monocypher.c librashader/include/librashader.h piccolo-shaders/README.md
              common/hosts-common/CMakeLists.txt common/frontends-common/CMakeLists.txt
              common/retroui/CMakeLists.txt)

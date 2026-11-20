@@ -47,7 +47,8 @@ piccoletto builds on its own: every dependency is a submodule in `deps/`.
 - `deps/common/hosts-common`      CMake helpers (`cmake/multitap.cmake`), host_fs, logging
 - `deps/common/frontends-common`  window, Vulkan, swapchain, ImGui glue (app_shell), settings, input, netcode (frontend_net)
 - `deps/common/retroui`           pixel font, themes, themed ImGui widgets, pad picture (shared with piccolo)
-- third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode`, `deps/enet`, `deps/monocypher` (frontends-common needs them),
+- third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode`, `deps/enet` (zpl-c's, IPv6), `deps/monocypher`,
+  `deps/beacon` (multitap-beacon: across the internet) (frontends-common needs them),
   `deps/librashader` (its MIT C header; the library is built for Android by android/build-librashader.sh and loaded at
   run time), `deps/piccolo-shaders` (the curated presets, branch `piccolo`)
 
@@ -120,9 +121,9 @@ android/           build-librashader.sh: librashader for arm64 Android (rustup's
                    NDK sysroot, Vulkan only) -> build/librashader/librashader.so, which build-apk.sh packs;
                    the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
-                   AndroidManifest.xml (site.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV),
-                   res/ (launcher icon, TV banner: exports of assets/branding)
-assets/branding/   icon, logo, TV banner (README: colors, type, how to export)
+                   AndroidManifest.xml (site.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV);
+                   the icon and banner come from assets/branding/android/res
+assets/branding/   icon (android/: adaptive), logo, TV banner light / dark (README: colors, type, how to export)
 flatpak/           site.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
 .github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64)
 tests/             hosts_test.cpp (hosts against a host in the same process: pairing, connecting, discovery)
@@ -156,7 +157,7 @@ The screen follows the phone (SDL's "full user", so the system rotation lock
 is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
 tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
-24 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
+25 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no
 ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 

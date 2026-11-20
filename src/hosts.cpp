@@ -37,7 +37,7 @@ static std::string key_section(const uint8_t* key)
 
 static bool same_address(NetAddress a, NetAddress b)
 {
-    return a.host == b.host && a.port == b.port;
+    return net_address_equal(a, b);   // (IPv4 or IPv6)
 }
 
 // What hosts.cfg says about a host (address, access level).
@@ -502,6 +502,23 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         }
         return;
     }
+    // GO HEADLESS: the host's state (the answer to ours, or a change on its side).
+    if (event->size > 0 && event->data[0] == NET_STREAM_HEADLESS_STATE)
+    {
+        bool on = false;
+        bool yours = false;
+        if (net_stream_read_headless_state(event->data, event->size, &on, &yours))
+        {
+            if (on != hosts->headless_on || yours != hosts->headless_yours)
+            {
+                SDL_Log("Network: the host %s", on ? (yours ? "is headless: this phone has the game" : "is headless for another device")
+                                                   : "shows its window again");
+            }
+            hosts->headless_on = on;
+            hosts->headless_yours = yours;
+        }
+        return;
+    }
     // DEVICES: who plays on the host's ports (asked for, then sent whenever it changes).
     if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::devices))
     {
@@ -543,7 +560,7 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
 static void send_devices_request(Hosts* hosts)
 {
     if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0 ||
-        hosts->known[static_cast<size_t>(hosts->linked)].access != NetAccessLevel::full)
+        !net_access_allows(hosts->known[static_cast<size_t>(hosts->linked)].access, NetAccessLevel::full))
     {
         return;
     }
@@ -610,6 +627,8 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->game_known = false;
                 hosts->devices_known = false;
                 hosts->devices.clear();
+                hosts->headless_on = false;
+                hosts->headless_yours = false;
                 send_devices_request(hosts);
                 if (hosts->stream_flags != 0)
                 {
@@ -622,14 +641,10 @@ static void update_locked(Hosts* hosts, double now)
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
                 net_client_send(&hosts->net.client, NetChannel::control, request, size);
                 const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
-                if (event.access != NetAccessLevel::gamepad && (!host->measured || hosts->measure_wanted))
+                // Any paired level may run it (Andrés, 2026-11-20).
+                if (!host->measured || hosts->measure_wanted)
                 {
                     speed_start(hosts);
-                }
-                else if (hosts->measure_only)
-                {
-                    hosts->measure_only = false;   // not allowed to measure after all: leave
-                    hosts_disconnect(hosts);
                 }
                 hosts->measure_wanted = false;
             }
@@ -655,7 +670,7 @@ static void update_locked(Hosts* hosts, double now)
                 host->access = event.access;
                 write_info(hosts, host);
                 // Raised to FULL with DEVICES wanted: ask now; lowered: the list goes.
-                if (event.access == NetAccessLevel::full)
+                if (net_access_allows(event.access, NetAccessLevel::full))
                 {
                     send_devices_request(hosts);
                 }
@@ -663,11 +678,6 @@ static void update_locked(Hosts* hosts, double now)
                 {
                     hosts->devices_known = false;
                     hosts->devices.clear();
-                }
-                // Raised to STREAM while connected: measure now.
-                if (event.access != NetAccessLevel::gamepad && !host->measured && !hosts->speed.running)
-                {
-                    speed_start(hosts);
                 }
             }
             break;
@@ -708,6 +718,8 @@ static void update_locked(Hosts* hosts, double now)
             hosts->game_known = false;
             hosts->devices_known = false;
             hosts->devices.clear();
+            hosts->headless_on = false;
+            hosts->headless_yours = false;
             if (hosts->link == LinkStatus::ready)
             {
                 hosts->link = LinkStatus::failed;
@@ -896,10 +908,6 @@ static bool measure_locked(Hosts* hosts, int32_t index)
         return false;
     }
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
-    if (host->access == NetAccessLevel::gamepad)
-    {
-        return false;
-    }
     if (hosts->link == LinkStatus::ready && hosts->linked == index)
     {
         if (!hosts->speed.running)
@@ -1024,6 +1032,8 @@ void hosts_stream_stop(Hosts* hosts)
     }
     hosts->stream_flags = 0;
     hosts->has_tuning_result = false;
+    hosts->headless_yours = false;   // (the host comes back by itself when the stream stops)
+    hosts->headless_on = false;
     if (hosts->ok)
     {
         net_client_service_lock(&hosts->net);
@@ -1064,6 +1074,28 @@ void hosts_move_device(Hosts* hosts, const NetDevice* device, int8_t port)
         net_client_service_unlock(&hosts->net);
         SDL_Log("Network: %s to port %d", device->name.c_str(), port + 1);
     }
+}
+
+void hosts_go_headless(Hosts* hosts, bool on)
+{
+    if (!hosts_streaming(hosts))
+    {
+        return;
+    }
+    uint8_t message[4];
+    size_t size = net_stream_write_go_headless(message, sizeof(message), on);
+    if (size > 0)
+    {
+        net_client_service_lock(&hosts->net);
+        net_client_send(&hosts->net.client, NetChannel::control, message, size);
+        net_client_service_unlock(&hosts->net);
+        SDL_Log("Network: %s", on ? "GO HEADLESS asked for" : "giving the game back to the host");
+    }
+}
+
+bool hosts_streaming(const Hosts* hosts)
+{
+    return hosts->ok && hosts->link == LinkStatus::ready && hosts->stream_flags != 0;
 }
 
 void hosts_set_stream_tuning(Hosts* hosts, const NetStreamTuning* tuning)
@@ -1178,6 +1210,10 @@ const char* hosts_refusal_text(NetClientRefusal refusal)
     case NetClientRefusal::wrong_code:     return "WRONG CODE";
     case NetClientRefusal::unknown_host:   return "NOT THE DEVICE YOU PAIRED WITH";
     case NetClientRefusal::connection:     return "CAN'T REACH IT";
+    // Across the internet (not used yet: piccoletto connects on the LAN).
+    case NetClientRefusal::beacon_unreachable: return "NO ANSWER FROM THE INTERNET SERVER";
+    case NetClientRefusal::host_offline:   return "IT ISN'T ONLINE";
+    case NetClientRefusal::no_route:       return "COULDN'T CONNECT";
     }
     return "";
 }

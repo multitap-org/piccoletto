@@ -108,7 +108,7 @@ static const char* selected_host(const App* app)
 static bool selected_full_access(const App* app)
 {
     const KnownHost* host = selected_known(app);
-    return host != nullptr && host->access == NetAccessLevel::full;
+    return host != nullptr && net_access_allows(host->access, NetAccessLevel::full);   // (or above)
 }
 
 // HOME's view of the paired hosts: the modes each access level opens.
@@ -126,7 +126,7 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         shown->access.remote_play = host->access != NetAccessLevel::gamepad;
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
-        shown->can_measure = host->online && host->access != NetAccessLevel::gamepad;
+        shown->can_measure = host->online;
         shown->measuring = hosts_measuring(&app->hosts, static_cast<int32_t>(i));
         count++;
     }
@@ -377,6 +377,14 @@ static void handle_action(App* app, NavAction action)
             break;
         case NavAction::measure:
             hosts_measure(&app->hosts, app->home.selected);
+            break;
+        case NavAction::go_headless:
+            close_menu(app);
+            hosts_go_headless(&app->hosts, true);
+            break;
+        case NavAction::play_on_host:
+            close_menu(app);
+            hosts_go_headless(&app->hosts, false);
             break;
         case NavAction::touch_controls:
             app->touch_with_gamepad = !app->touch_with_gamepad;
@@ -648,6 +656,7 @@ static void draw_screen(App* app)
         link.kbps = app->stream_rates.kbps;
         link.lost = app->stream_rates.lost;
         link.audio_gaps = app->stream_rates.audio_gaps;
+        link.headless = app->hosts.headless_on && app->hosts.headless_yours;
         NetStreamTuning tuning;
         if (hosts_stream_tuning_result(&app->hosts, &tuning))
         {
@@ -745,6 +754,17 @@ static void draw_screen(App* app)
         input.devices = selected_full_access(app);
         input.touch_toggle = app->screen == Screen::remote_play && gamepad_connected;
         input.touch_shown = show_touch;
+        if (app->screen == Screen::remote_play && hosts_streaming(&app->hosts))
+        {
+            if (!app->hosts.headless_on)
+            {
+                input.headless = HeadlessItem::go;
+            }
+            else if (app->hosts.headless_yours)
+            {
+                input.headless = HeadlessItem::give_back;
+            }
+        }
         action = quick_menu_draw(&app->quick_menu, &app->ui, &input, &app->settings);
         touch_ui_end_screen();
     }
@@ -960,6 +980,13 @@ int main(int argc, char** argv)
         app_shell_destroy(&app->shell);
         delete app;
         return 1;
+    }
+    // A build from a branch other than main has the branch in its version
+    // ("0.1-piccoletto"): show it in the window title, so a test build says
+    // which branch made it (as piccolo does).
+    if (SDL_strchr(PICCOLETTO_VERSION, '-') != nullptr)
+    {
+        SDL_SetWindowTitle(app->shell.window, "piccoletto " PICCOLETTO_VERSION);
     }
     app->ui.font = pixel_font_imgui_add();
     if (app->ui.font == nullptr)
