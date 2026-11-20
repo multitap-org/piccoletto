@@ -68,6 +68,7 @@ struct App
     SettingsFile   settings_file;
     SettingsFile   layouts_file;
     bool           running    = false;
+    bool           testing    = false;   // opened with --screen: the modes stay without a host
 };
 
 constexpr int32_t MAX_SHOWN_HOSTS = 32;   // HOME and SETTINGS list at most this many
@@ -675,6 +676,7 @@ int main(int argc, char** argv)
         }
         else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && parse_screen(argv[i + 1], &first))
         {
+            app->testing = true;
             i++;
         }
         else if (SDL_strcmp(argv[i], "--aspect") == 0 && i + 1 < argc && parse_aspect(argv[i + 1], &app->stream))
@@ -757,7 +759,7 @@ int main(int argc, char** argv)
         // can't be made, back to HOME.
         bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play ||
                        app->screen == Screen::devices;
-        if (in_mode && app->hosts.link == LinkStatus::failed)
+        if (in_mode && app->hosts.link == LinkStatus::failed && !app->testing)
         {
             SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
             go_to(app, Screen::home);
