@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- piccoletto for Android. Based on piccolo's android/AndroidManifest.xml
+     (itself cut down from SDL3's android-project manifest). Phones and
+     tablets; no Android TV (piccoletto is held in the hand).
+     Linked against API 32's android.jar (see build-apk.sh): attributes from
+     API 33+ (enableOnBackInvokedCallback, grammaticalGender) are left out. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="site.multitap.piccoletto"
+    android:versionCode="1"
+    android:versionName="0.1"
+    android:installLocation="auto">
+
+    <!-- 28 (Android 9): its libvulkan.so exports the Vulkan 1.1 functions
+         frontends-common calls. Target 35: what the Play Store asks for now;
+         piccoletto needs no shared storage (its files live in the app's own
+         folder, SDL_GetPrefPath), so none of piccolo's targetSdk 29 reasons apply. -->
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
+
+    <!-- Vulkan 1.1+ (frontends-common has a 1.1 path and a 1.3 one). -->
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="true" />
+    <!-- Not required: it runs on Android TV too (the SHIELD), driven by a gamepad. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+    <!-- Talking to piccolo on the local network (ENet over UDP, later). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- VIBRATE ON PRESS (SETTINGS). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Icon and TV banner: assets/branding (android/res holds their exports). -->
+    <application android:label="piccoletto"
+        android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/banner"
+        android:allowBackup="true"
+        android:extractNativeLibs="true"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+        android:hardwareAccelerated="true">
+
+        <!-- No screenOrientation: SDL asks for "full user" (the screen follows
+             the phone, unless the system's rotation lock is on) and ROTATE
+             locks it to the other side (see rotate() in src/main.cpp).
+             configChanges: SDL handles turning and resizing itself, the
+             activity isn't restarted. -->
+        <activity android:name=".PiccolettoActivity"
+            android:label="piccoletto"
+            android:alwaysRetainTaskState="true"
+            android:launchMode="singleInstance"
+            android:configChanges="layoutDirection|locale|fontScale|fontWeightAdjustment|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

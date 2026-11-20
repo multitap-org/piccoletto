@@ -17,12 +17,33 @@
 #include "retro_ui.h"
 
 struct ImFont;
+struct TouchFingers;
+
+// Where the gamepad's focus is this frame (a button reports itself while
+// it has it), so a scrolled list can bring it into view. Reset each frame.
+struct TouchFocus
+{
+    bool  has    = false;
+    float y      = 0.0f;   // retro pixels
+    float height = 0.0f;
+};
+struct RealGamepad;
+struct RetroPad;
 
 struct TouchUi
 {
-    ImFont*        font  = nullptr;
-    int32_t        scale = 1;          // window pixels per retro pixel
+    ImFont*        font    = nullptr;
+    int32_t        scale   = 1;          // window pixels per retro pixel
     RetroUiPalette palette = {};
+    // Every finger, for the pads (touch_fingers.h); nullptr while something
+    // covers the screen (the ☰ sheet, HOME's sidebar): the pads take none then.
+    TouchFingers*  fingers = nullptr;
+    // Real gamepads (real_gamepad.h): their presses light the pads' parts too.
+    const RealGamepad* gamepad = nullptr;
+    TouchFocus*    focus   = nullptr;     // nullptr: not tracked
+    // The touch pad's state this frame (pad_layout_draw adds the parts its
+    // fingers hold); nullptr: not collected.
+    RetroPad*      pad     = nullptr;
 };
 
 // The scale for a window: the short side holds at least 195 retro pixels
@@ -56,6 +77,11 @@ float touch_ui_text_width(const TouchUi* ui, const char* text, TouchText size);
 // The line's height in retro pixels.
 float touch_ui_text_height(const TouchUi* ui, TouchText size);
 
+// The size to give ImGui::PushFont for an ImGui widget (a text field) so its
+// text matches touch_ui_text's: ImGui scales pushed fonts by the style's
+// font scales (frontends-common sets the DPI one to the display's scale).
+float touch_ui_imgui_font_size(const TouchUi* ui, TouchText size);
+
 // A filled rectangle.
 void touch_ui_rect(const TouchUi* ui, float x, float y, float width, float height, uint32_t argb);
 
@@ -75,9 +101,18 @@ enum class TouchButton
 bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float width, float height,
                      const char* label, TouchButton style, TouchText size);
 
+// Whether gamepad navigation can reach a touch area (buttons always can):
+// a backdrop that only catches taps (outside a sheet, a scroll area) can't.
+enum class TouchNav
+{
+    reachable,
+    taps_only,
+};
+
 // A touch area with nothing drawn (the caller draws it): true when tapped,
 // *held while a finger (the mouse) is on it.
-bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held);
+bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held,
+                   TouchNav nav);
 
 // A light the height of a letter at (x, y + 2): online green, or `argb`.
 constexpr float TOUCH_UI_LAMP = 5.0f;

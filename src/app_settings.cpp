@@ -10,7 +10,7 @@
 static const char* const THEME_KEYS[] = {"blue", "purple", "zsnes", "black"};
 static const char* const THEME_NAMES[] = {"BLUE", "PURPLE", "ZSNES", "BLACK"};
 static const char* const LANGUAGE_KEYS[] = {"en", "es"};
-static const char* const QUALITY_KEYS[] = {"latency", "balanced", "quality"};
+static const char* const PACING_KEYS[] = {"latency", "balanced", "smooth"};
 
 const char* app_theme_name(RetroUiTheme theme)
 {
@@ -58,8 +58,8 @@ void app_settings_load(AppSettings* settings, const SettingsFile* file)
             settings->overlay_opacity = value;
         }
     }
-    settings->quality = static_cast<StreamQuality>(
-        find_key(settings_file_get(file, "", "remote_play_quality"), QUALITY_KEYS, static_cast<int32_t>(StreamQuality::count), 1));
+    settings->pacing = static_cast<StreamPacing>(
+        find_key(settings_file_get(file, "", "remote_play_pacing"), PACING_KEYS, static_cast<int32_t>(StreamPacing::count), 1));
 }
 
 void app_settings_save(const AppSettings* settings, SettingsFile* file)
@@ -71,5 +71,5 @@ void app_settings_save(const AppSettings* settings, SettingsFile* file)
     char value[16];
     std::snprintf(value, sizeof(value), "%.2f", static_cast<double>(settings->overlay_opacity));
     settings_file_set(file, "", "overlay_opacity", value);
-    settings_file_set(file, "", "remote_play_quality", QUALITY_KEYS[static_cast<int32_t>(settings->quality)]);
+    settings_file_set(file, "", "remote_play_pacing", PACING_KEYS[static_cast<int32_t>(settings->pacing)]);
 }

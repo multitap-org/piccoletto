@@ -51,7 +51,7 @@ static void name_field(const TouchUi* ui, AppSettings* settings, float x, float 
     float scale = static_cast<float>(ui->scale);
     float text_y = touch_ui_centered_text_y(ui, y, CONTROL, TouchText::normal);
     ImGui::SetCursorScreenPos(ImVec2(std::floor((x + 6.0f) * scale), std::floor(text_y * scale)));
-    ImGui::PushFont(ui->font, PIXEL_FONT_IMGUI_UNIT * scale);
+    ImGui::PushFont(ui->font, touch_ui_imgui_font_size(ui, TouchText::normal));
     ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -145,12 +145,12 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     }
     y += CONTROL + ROW_GAP;
 
-    y = label(ui, x, y, "REMOTE PLAY QUALITY");
-    const char* qualities[3] = {"LATENCY", "BALANCED", "QUALITY"};
-    int32_t quality = choices(ui, "##quality", qualities, 3, static_cast<int32_t>(settings->quality), x, y, column);
-    if (quality >= 0)
+    y = label(ui, x, y, "REMOTE PLAY PACING");
+    const char* pacings[3] = {"LATENCY", "BALANCED", "SMOOTH"};
+    int32_t pacing = choices(ui, "##pacing", pacings, 3, static_cast<int32_t>(settings->pacing), x, y, column);
+    if (pacing >= 0)
     {
-        settings->quality = static_cast<StreamQuality>(quality);
+        settings->pacing = static_cast<StreamPacing>(pacing);
     }
     y += CONTROL + ROW_GAP;
 
@@ -184,12 +184,26 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     float content = y + screen->scroll - list_top;
     float most = content > list_height ? content - list_height : 0.0f;
     bool held = false;
-    touch_ui_area(ui, "##settings_scroll", 0.0f, list_top, width, list_height, &held);
+    touch_ui_area(ui, "##settings_scroll", 0.0f, list_top, width, list_height, &held, TouchNav::taps_only);
     if (held)
     {
         screen->scroll -= ImGui::GetIO().MouseDelta.y / static_cast<float>(ui->scale);
     }
     screen->scroll -= ImGui::GetIO().MouseWheel * 16.0f;
+    // The gamepad's focus kept in view (a margin of a label above it).
+    if (ui->focus != nullptr && ui->focus->has)
+    {
+        float top = ui->focus->y - LABEL_HEIGHT;
+        float bottom = ui->focus->y + ui->focus->height + ROW_GAP;
+        if (top < list_top)
+        {
+            screen->scroll -= list_top - top;
+        }
+        else if (bottom > list_top + list_height)
+        {
+            screen->scroll += bottom - (list_top + list_height);
+        }
+    }
     screen->scroll = screen->scroll < 0.0f ? 0.0f : (screen->scroll > most ? most : screen->scroll);
     touch_ui_pop_clip();
     return action;

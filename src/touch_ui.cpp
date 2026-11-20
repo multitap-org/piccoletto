@@ -52,6 +52,12 @@ int32_t touch_ui_scale_for(float width, float height)
 void touch_ui_begin_screen(const TouchUi* ui, const char* id)
 {
     const ImGuiIO& io = ImGui::GetIO();
+    // Gamepad navigation needs a focused window: the screen's when none is
+    // (at start, after a sheet closes).
+    if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow))
+    {
+        ImGui::SetNextWindowFocus();
+    }
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
     ImGui::SetNextWindowSize(io.DisplaySize);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -111,6 +117,13 @@ float touch_ui_text_height(const TouchUi* ui, TouchText size)
     return font_size(ui, size) / static_cast<float>(ui->scale);
 }
 
+float touch_ui_imgui_font_size(const TouchUi* ui, TouchText size)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+    float imgui_scale = style.FontScaleMain * style.FontScaleDpi;
+    return font_size(ui, size) / (imgui_scale > 0.0f ? imgui_scale : 1.0f);
+}
+
 float touch_ui_text(const TouchUi* ui, float x, float y, const char* text, uint32_t argb, TouchText size)
 {
     ImGui::GetWindowDrawList()->AddText(ui->font, font_size(ui, size), ImVec2(px(ui, x), px(ui, y)), to_imgui(argb), text);
@@ -138,7 +151,15 @@ bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float 
 {
     // ImGui does the hit testing and the press state; we draw everything.
     ImGui::SetCursorScreenPos(ImVec2(px(ui, x), px(ui, y)));
-    bool tapped = ImGui::InvisibleButton(id, ImVec2(px(ui, x + width) - px(ui, x), px(ui, y + height) - px(ui, y)));
+    // EnableNav: reachable with a gamepad (ImGui draws the focus around it).
+    bool tapped = ImGui::InvisibleButton(id, ImVec2(px(ui, x + width) - px(ui, x), px(ui, y + height) - px(ui, y)),
+                                         ImGuiButtonFlags_EnableNav);
+    if (ui->focus != nullptr && ImGui::IsItemFocused())
+    {
+        ui->focus->has = true;
+        ui->focus->y = y;
+        ui->focus->height = height;
+    }
     bool pressed = ImGui::IsItemActive();
     const RetroUiPalette* palette = &ui->palette;
 
@@ -212,10 +233,12 @@ bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float 
     return tapped;
 }
 
-bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held)
+bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held,
+                   TouchNav nav)
 {
     ImGui::SetCursorScreenPos(ImVec2(px(ui, x), px(ui, y)));
-    bool tapped = ImGui::InvisibleButton(id, ImVec2(px(ui, x + width) - px(ui, x), px(ui, y + height) - px(ui, y)));
+    ImGuiButtonFlags flags = nav == TouchNav::reachable ? ImGuiButtonFlags_EnableNav : ImGuiButtonFlags_None;
+    bool tapped = ImGui::InvisibleButton(id, ImVec2(px(ui, x + width) - px(ui, x), px(ui, y + height) - px(ui, y)), flags);
     *held = ImGui::IsItemActive();
     return tapped;
 }

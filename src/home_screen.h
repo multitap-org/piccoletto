@@ -1,9 +1,11 @@
 #pragma once
 
 // HOME: the paired hosts (piccolos). The selected one is a big card with the
-// modes this phone may use on it; the others are one-line rows; at the
-// bottom, PAIR A DEVICE with how many unpaired ones are on the network.
-// Portrait and landscape (card on the left, rows on the right).
+// modes this phone may use on it; the others are behind a sidebar, closed
+// to a tab at the right edge in landscape and to a bar at the bottom (like a
+// status bar) in portrait. Open, it shows one card per host (like DEVICES'
+// ports), as big as they need up to 80% of the screen. PAIR A DEVICE is the
+// title bar's + (with how many unpaired ones were found).
 
 #include <cstdint>
 
@@ -16,7 +18,6 @@ struct HostAccess
 {
     bool gamepad     = false;
     bool remote_play = false;
-    bool devices     = false;   // may move the connected devices between ports
 };
 
 struct HomeHost
@@ -25,14 +26,24 @@ struct HomeHost
     bool        online  = false;
     const char* playing = "";   // the game running there, "" if none
     HostAccess  access  = {};
+    uint32_t    down_kbps = 0;  // last speed test (0 = never measured)
+    uint32_t    up_kbps   = 0;
+    bool        can_measure = false;   // the refresh button by the name (online, STREAM access or more)
+    bool        measuring   = false;   // a speed test is running
 };
 
 struct HomeScreen
 {
-    int32_t selected = 0;   // the host on the big card
+    int32_t selected     = 0;       // the host on the big card
+    bool    sidebar_open = false;   // the other hosts' sidebar
 };
 
 // Draws HOME between touch_ui_begin_screen / end. Returns what was tapped
 // (for the selected host, home->selected).
 NavAction home_screen_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count,
                             int32_t found_count);
+
+// The sidebar, in its own overlay window over HOME (touch_ui_begin_overlay),
+// while home->sidebar_open: tapping a host puts it on the card, tapping
+// outside closes it.
+void home_sidebar_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts, int32_t host_count);

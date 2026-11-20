@@ -17,11 +17,14 @@ enum class AppLanguage
     count,
 };
 
-enum class StreamQuality
+// REMOTE PLAY's pacing (like Moonlight's): latency against smoothness. Only
+// the choice is saved; what it sets (frames in flight, the picture queue) is
+// the app's own and applied only while REMOTE PLAY is open.
+enum class StreamPacing
 {
-    latency,    // the lowest latency the network allows
-    balanced,
-    quality,    // the best picture, more latency
+    latency,    // always the newest picture, 1 frame in flight, the next frame starts late
+    balanced,   // the newest picture, 2 frames in flight
+    smooth,     // pictures in order, one per frame (a queue of up to 3), 2 frames in flight
     count,
 };
 
@@ -32,7 +35,7 @@ struct AppSettings
     AppLanguage   language        = AppLanguage::english;     // no translations yet
     bool          vibrate         = true;                     // a short buzz on every press
     float         overlay_opacity = 0.6f;                     // overlays' default; adjustable while streaming
-    StreamQuality quality         = StreamQuality::balanced;  // the default; adjustable while streaming
+    StreamPacing  pacing          = StreamPacing::balanced;   // REMOTE PLAY's latency against smoothness
 };
 
 void app_settings_load(AppSettings* settings, const SettingsFile* file);

@@ -63,7 +63,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---------------------------------------------------------------------------
 # Submodule check
 # ---------------------------------------------------------------------------
-foreach(_dep imgui/imgui.cpp libsamplerate/src/samplerate.c gamemode/lib/gamemode_client.h
+foreach(_dep imgui/imgui.cpp libsamplerate/src/samplerate.c gamemode/lib/gamemode_client.h enet/host.c
+             monocypher/src/monocypher.c
              common/hosts-common/CMakeLists.txt common/frontends-common/CMakeLists.txt
              common/retroui/CMakeLists.txt)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/${_dep}")
@@ -120,7 +121,7 @@ add_subdirectory(deps/common/retroui)
 # ---------------------------------------------------------------------------
 # piccoletto
 # ---------------------------------------------------------------------------
-add_executable(piccoletto
+set(PICCOLETTO_SOURCES
     src/main.cpp
     src/touch_ui.cpp
     src/home_screen.cpp
@@ -128,14 +129,33 @@ add_executable(piccoletto
     src/pad_layout.cpp
     src/gamepad_screen.cpp
     src/remote_play_screen.cpp
+    src/stream_view.cpp
     src/pair_screen.cpp
-    src/devices_screen.cpp
+    src/devices_overlay.cpp
     src/pad_layouts.cpp
     src/pad_editor.cpp
     src/app_settings.cpp
     src/settings_screen.cpp
+    src/title_bar.cpp
+    src/touch_fingers.cpp
+    src/haptics.cpp
+    src/real_gamepad.cpp
+    src/hosts.cpp
+    src/retropad.cpp
 )
-target_link_libraries(piccoletto PRIVATE frontend_common retroui)
+if(ANDROID)
+    # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):
+    # the same piccoletto as libmain.so, which SDL's Java activity loads and
+    # whose SDL_main (main.cpp's main, renamed by SDL_main.h) it calls.
+    add_library(piccoletto SHARED ${PICCOLETTO_SOURCES})
+    set_target_properties(piccoletto PROPERTIES
+        OUTPUT_NAME "main"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")   # where build-apk.sh picks it up
+    target_link_libraries(piccoletto PRIVATE android log)
+else()
+    add_executable(piccoletto ${PICCOLETTO_SOURCES})
+endif()
+target_link_libraries(piccoletto PRIVATE frontend_common frontend_net retroui)
 
 set(PICCOLETTO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(PICCOLETTO_VERSION_BASE 0.1)
@@ -145,4 +165,23 @@ target_include_directories(piccoletto PRIVATE "${PICCOLETTO_GENERATED}")
 message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 
 multitap_set_project_flags(piccoletto)
-multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
+if(NOT ANDROID)
+    multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
+endif()
+
+if(MULTITAP_BUILD_TESTS)
+    # src/hosts.* against a host in the same process over loopback (pairing,
+    # connecting, discovery). Its scratch folder is emptied first.
+    add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)
+    target_include_directories(piccoletto_hosts_test PRIVATE src)
+    target_link_libraries(piccoletto_hosts_test PRIVATE frontend_common frontend_net)
+    target_sources(piccoletto_hosts_test PRIVATE src/retropad.cpp)
+    multitap_set_project_flags(piccoletto_hosts_test)
+    set(HOSTS_TEST_SCRATCH "${CMAKE_CURRENT_BINARY_DIR}/hosts_test")
+    add_test(NAME piccoletto_hosts_clean COMMAND ${CMAKE_COMMAND} -E rm -rf "${HOSTS_TEST_SCRATCH}")
+    set_tests_properties(piccoletto_hosts_clean PROPERTIES FIXTURES_SETUP hosts_scratch)
+    add_test(NAME piccoletto_hosts COMMAND piccoletto_hosts_test "${HOSTS_TEST_SCRATCH}")
+    set_tests_properties(piccoletto_hosts PROPERTIES
+                         FIXTURES_REQUIRED hosts_scratch
+                         FAIL_REGULAR_EXPRESSION "ERROR: AddressSanitizer|ERROR: LeakSanitizer|runtime error:")
+endif()

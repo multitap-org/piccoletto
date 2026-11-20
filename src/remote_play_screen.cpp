@@ -4,8 +4,10 @@
 #include <cstdio>
 
 #include "pixel_font_imgui.h"
+#include "stream_view.h"
+#include "title_bar.h"
 
-// The line under the picture in portrait (the host, the latency), retro pixels.
+// The line under the picture in portrait (the port LEDs, the host, the latency), retro pixels.
 constexpr float STATUS_HEIGHT = 12.0f;
 // The row of ☰ / rotate / GAMEPAD under the pad in portrait, retro pixels.
 constexpr float BUTTON_ROW = 30.0f;
@@ -18,10 +20,15 @@ static void draw_picture(const TouchUi* ui, const RemoteStream* stream, float x,
 {
     const RetroUiPalette* palette = &ui->palette;
     touch_ui_rect(ui, x, y, width, height, palette->field_face);
+    if (stream->view != nullptr && stream->shell != nullptr &&
+        stream_view_draw(stream->view, ui, stream->shell, x, y, width, height))
+    {
+        return;
+    }
     char size[48];
     std::snprintf(size, sizeof(size), "%d×%d · %s", static_cast<int>(stream->width), static_cast<int>(stream->height),
                   stream->aspect_label);
-    const char* label = "GAME VIDEO";
+    const char* label = stream->status != nullptr ? stream->status : "GAME VIDEO";
     float line = touch_ui_text_height(ui, TouchText::normal);
     float middle = y + height * 0.5f;
     touch_ui_text(ui, std::floor(x + (width - touch_ui_text_width(ui, label, TouchText::normal)) * 0.5f), std::floor(middle - line),
@@ -46,35 +53,37 @@ static void fit_picture(float aspect, float room_x, float room_y, float room_wid
 }
 
 // The layout played, or edited.
-static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor)
+static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool full_access,
+                          bool show_touch)
 {
     if (editor->active)
     {
         return pad_editor_draw(editor, ui, frame, layout) ? NavAction::edit_done : NavAction::none;
     }
-    pad_layout_draw(ui, frame, layout);
+    if (show_touch)
+    {
+        pad_layout_draw(ui, frame, layout, full_access);
+    }
     return NavAction::none;
 }
 
-// ☰ and rotate as plain icons in the top right corner (over the picture).
-static NavAction draw_corner_icons(const TouchUi* ui, float width)
+// Over the picture: the back arrow, the host and the title bar's icons (+
+// off here) where HOME has them; the port LEDs and the ping in the bottom
+// left corner.
+static NavAction draw_title_bar(const TouchUi* ui, const char* host, int32_t port, const PadLink* link)
 {
-    NavAction action = NavAction::none;
-    float size = 24.0f;
-    if (touch_ui_button(ui, "##rotate", width - 4.0f - 2.0f * size, 2.0f, size, size, PIXEL_FONT_UTF8_ROTATE, TouchButton::plain,
-                        TouchText::big))
+    title_bar_host(ui, host, ui->palette.text_highlight);
+    title_bar_pad_status(ui, port, link, ui->palette.text_highlight);
+    NavAction action = title_bar_icons(ui, false, 0);
+    if (title_bar_back(ui))
     {
-        action = NavAction::rotate;
-    }
-    if (touch_ui_button(ui, "##menu", width - 4.0f - size, 2.0f, size, size, PIXEL_FONT_UTF8_MENU, TouchButton::plain,
-                        TouchText::big))
-    {
-        action = NavAction::menu;
+        action = NavAction::home;
     }
     return action;
 }
 
-NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const RemoteStream* stream, PadLayouts* layouts,
+NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, const PadLink* link,
+                                  bool full_access, bool show_touch, const RemoteStream* stream, PadLayouts* layouts,
                                   PadEditor* editor)
 {
     const RetroUiPalette* palette = &ui->palette;
@@ -101,13 +110,17 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
             touch_ui_rect(ui, 0.0f, 0.0f, width, pad_top, palette->panel_dark);
             draw_picture(ui, stream, 0.0f, 0.0f, pw, ph);
             float status_y = ph + 2.0f;
-            touch_ui_lamp(ui, 4.0f, status_y, TOUCH_UI_LAMP_ONLINE);
-            touch_ui_text(ui, 4.0f + TOUCH_UI_LAMP + 5.0f, status_y, host, palette->text_disabled, TouchText::normal);
-            const char* latency = "9 MS";   // placeholder until there's a connection to measure
-            touch_ui_text(ui, width - 4.0f - touch_ui_text_width(ui, latency, TouchText::normal), status_y, latency,
-                          palette->text_disabled, TouchText::normal);
+            float leds = title_bar_port_leds(ui, 4.0f, status_y, port);
+            touch_ui_text(ui, 4.0f + leds + 6.0f, status_y, host, palette->text_disabled, TouchText::normal);
+            // The ping at the right.
+            float ping_width = title_bar_ping_width(ui, link);
+            title_bar_ping(ui, width - 4.0f - ping_width, status_y, link, palette->text_disabled);
             if (!editor->active)
             {
+                if (title_bar_back(ui))
+                {
+                    action = NavAction::home;
+                }
                 float row_y = height - BUTTON_ROW + 2.0f;
                 float button = BUTTON_ROW - 6.0f;
                 if (touch_ui_button(ui, "##menu", 6.0f, row_y, button, button, PIXEL_FONT_UTF8_MENU, TouchButton::field,
@@ -126,7 +139,7 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
                     action = NavAction::gamepad;
                 }
             }
-            NavAction pad = draw_pad(ui, &frame, below, editor);
+            NavAction pad = draw_pad(ui, &frame, below, editor, full_access, show_touch);
             return pad != NavAction::none ? pad : action;
         }
 
@@ -134,8 +147,8 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
         draw_picture(ui, stream, px, py, pw, ph);
         PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_portrait);
         PadFrame overlay_frame = pad_frame_fit(ui, overlay->width, overlay->height);
-        NavAction icons = editor->active ? NavAction::none : draw_corner_icons(ui, width);
-        NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor);
+        NavAction icons = editor->active ? NavAction::none : draw_title_bar(ui, host, port, link);
+        NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor, full_access, show_touch);
         return pad != NavAction::none ? pad : icons;
     }
 
@@ -143,8 +156,8 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, const Rem
     fit_picture(stream->aspect, 0.0f, 0.0f, width, height, &px, &py, &pw, &ph);
     draw_picture(ui, stream, px, py, pw, ph);
     PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_landscape);
-    PadFrame frame = pad_frame_fit(ui, overlay->width, overlay->height);
-    NavAction icons = editor->active ? NavAction::none : draw_corner_icons(ui, width);
-    NavAction pad = draw_pad(ui, &frame, overlay, editor);
+    PadFrame frame = pad_frame_fit_bottom(ui, overlay->width, overlay->height);
+    NavAction icons = editor->active ? NavAction::none : draw_title_bar(ui, host, port, link);
+    NavAction pad = draw_pad(ui, &frame, overlay, editor, full_access, show_touch);
     return pad != NavAction::none ? pad : icons;
 }
