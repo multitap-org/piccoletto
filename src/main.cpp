@@ -904,6 +904,13 @@ int main(int argc, char** argv)
         delete app;
         return 1;
     }
+    // A build from a branch other than main has the branch in its version
+    // ("0.1-piccoletto"): show it in the window title, so a test build says
+    // which branch made it (as piccolo does).
+    if (SDL_strchr(PICCOLETTO_VERSION, '-') != nullptr)
+    {
+        SDL_SetWindowTitle(app->shell.window, "piccoletto " PICCOLETTO_VERSION);
+    }
     app->ui.font = pixel_font_imgui_add();
     if (app->ui.font == nullptr)
     {
