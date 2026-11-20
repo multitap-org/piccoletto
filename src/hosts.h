@@ -17,7 +17,7 @@
 //
 // While connected: the ping (ENet's round trip, jitter, loss), read every
 // 5 seconds; a speed test when a connection is made (rising rates, down then
-// up, until the loss passes 2%; needs STREAM access; once per run of the app
+// up, until the loss passes 2%; any paired level; once per run of the app
 // for each host), kept per host (HOME shows it; the stream's quality later).
 //
 // FORGET unpairs on both sides when the host can be reached (it's told and
@@ -159,7 +159,7 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index);
 // hosts->pair. False if it can't start (another connection is running).
 bool hosts_pair(Hosts* hosts, NetAddress address, const char* code);
 // Connect to a paired host (entering GAMEPAD...) / leave it. The speed test
-// runs once it's ready (STREAM access or more; once per run for each host).
+// runs once it's ready (once per run for each host).
 bool hosts_connect(Hosts* hosts, int32_t index);
 void hosts_disconnect(Hosts* hosts);
 // Stop pairing or connecting; the pair / link status goes back to idle.
@@ -174,9 +174,9 @@ void hosts_send_pad(Hosts* hosts, const RetroPad* pad);
 // it isn't on one (START joins it) or there's no connection.
 int32_t hosts_pad_port(const Hosts* hosts);
 
-// HOME's refresh: a speed test now (STREAM access or more). Connected to
+// HOME's refresh: a speed test now. Connected to
 // that host already: right away; else it connects, measures and leaves.
-// False when it can't (no such host, GAMEPAD access, offline, busy).
+// False when it can't (no such host, offline, busy).
 bool hosts_measure(Hosts* hosts, int32_t index);
 // A speed test for that host is running (or connecting to run one).
 bool hosts_measuring(const Hosts* hosts, int32_t index);

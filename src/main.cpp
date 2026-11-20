@@ -124,7 +124,7 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         shown->access.remote_play = host->access != NetAccessLevel::gamepad;
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
-        shown->can_measure = host->online && host->access != NetAccessLevel::gamepad;
+        shown->can_measure = host->online;
         shown->measuring = hosts_measuring(&app->hosts, static_cast<int32_t>(i));
         count++;
     }

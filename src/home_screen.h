@@ -28,7 +28,7 @@ struct HomeHost
     HostAccess  access  = {};
     uint32_t    down_kbps = 0;  // last speed test (0 = never measured)
     uint32_t    up_kbps   = 0;
-    bool        can_measure = false;   // the refresh button by the name (online, STREAM access or more)
+    bool        can_measure = false;   // the refresh button by the name (online)
     bool        measuring   = false;   // a speed test is running
 };
 

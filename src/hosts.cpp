@@ -622,14 +622,10 @@ static void update_locked(Hosts* hosts, double now)
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
                 net_client_send(&hosts->net.client, NetChannel::control, request, size);
                 const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
-                if (event.access != NetAccessLevel::gamepad && (!host->measured || hosts->measure_wanted))
+                // Any paired level may run it (Andrés, 2026-11-20).
+                if (!host->measured || hosts->measure_wanted)
                 {
                     speed_start(hosts);
-                }
-                else if (hosts->measure_only)
-                {
-                    hosts->measure_only = false;   // not allowed to measure after all: leave
-                    hosts_disconnect(hosts);
                 }
                 hosts->measure_wanted = false;
             }
@@ -663,11 +659,6 @@ static void update_locked(Hosts* hosts, double now)
                 {
                     hosts->devices_known = false;
                     hosts->devices.clear();
-                }
-                // Raised to STREAM while connected: measure now.
-                if (event.access != NetAccessLevel::gamepad && !host->measured && !hosts->speed.running)
-                {
-                    speed_start(hosts);
                 }
             }
             break;
@@ -896,10 +887,6 @@ static bool measure_locked(Hosts* hosts, int32_t index)
         return false;
     }
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
-    if (host->access == NetAccessLevel::gamepad)
-    {
-        return false;
-    }
     if (hosts->link == LinkStatus::ready && hosts->linked == index)
     {
         if (!hosts->speed.running)

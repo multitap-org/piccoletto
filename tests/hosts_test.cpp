@@ -411,13 +411,15 @@ int main(int argc, char** argv)
     }
     uint16_t expected = static_cast<uint16_t>((1u << 8) | (1u << 3));
     check(pump.retropads > 0 && pump.last_buttons == expected, "the RetroPad reaches the host");
-    check(!hosts->speed.running && !hosts->known[0].measured, "no speed test at gamepad level");
+    check(hosts->speed.running || hosts->known[0].measured, "the speed test at gamepad level too");
+    end_wait(&pump, 20.0);
+    check(!hosts->speed.running && hosts->known[0].measured, "it ends at gamepad level");
     hosts_disconnect(hosts);
     check(hosts_pad_port(hosts) == 0, "no port once left");
     check(hosts_pad_link(hosts).state == LinkShown::offline, "offline once left");
 
-    // The host raises our level: the next connection brings it, and runs the
-    // speed test (STREAM access or more, once per run).
+    // The host raises our level: the next connection brings it; HOME's
+    // refresh (hosts_measure) measures again while connected.
     if (access->trust.devices.size() == 1)
     {
         net_access_set_level(access, 0, NetAccessLevel::full);
@@ -425,7 +427,8 @@ int main(int argc, char** argv)
     check(hosts_connect(hosts, 0), "connect again");
     check(pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected again");
     check(!hosts->known.empty() && hosts->known[0].access == NetAccessLevel::full, "the host's level");
-    check(hosts->speed.running, "the speed test runs");
+    check(!hosts->speed.running, "measured once per run: not again on its own");
+    check(hosts_measure(hosts, 0) && hosts->speed.running, "the speed test runs when asked");
     end_wait(&pump, 20.0);
     check(!hosts->speed.running, "the speed test ends");
     check(!hosts->known.empty() && hosts->known[0].down_kbps > 0 && hosts->known[0].up_kbps > 0, "speeds measured");
