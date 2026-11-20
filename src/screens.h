@@ -13,7 +13,7 @@ enum class NavAction
     pair,
     gamepad,
     remote_play,
-    devices,
+    devices,       // open / close DEVICES over GAMEPAD or REMOTE PLAY
     edit_layout,   // EDIT LAYOUT on the current pad
     edit_done,     // EDIT LAYOUT's DONE: save the layouts
     settings,
@@ -27,7 +27,6 @@ enum class Screen
     pair,
     gamepad,
     remote_play,
-    devices,
     settings,
 };
 

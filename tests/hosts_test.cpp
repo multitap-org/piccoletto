@@ -4,7 +4,8 @@
 // paired phone with the level the host gives, the ping, a speed test, the
 // host online through discovery, FORGET telling the host, the host
 // unpairing the phone; REMOTE PLAY's stream (stream_start, game_state,
-// stream_info, a coded frame arriving exact, stream_stop).
+// stream_info, a coded frame arriving exact, stream_stop); DEVICES (the
+// host's list, moving one, the list again).
 //
 //   piccoletto_hosts_test <scratch folder>
 
@@ -56,7 +57,16 @@ struct Pump
     uint32_t         stream_peer = 0;
     uint8_t          stream_flags = 0;
     NetStreamDelay   tuning_asked = NetStreamDelay::host;   // the last stream_tuning's delay mode
+    std::vector<NetDevice> devices;     // as piccolo's list: who plays on its ports
+    uint32_t         devices_requests = 0;
 };
+
+static void host_send_devices(Pump* pump, uint32_t peer, uint32_t id)
+{
+    std::vector<uint8_t> out(1024);
+    size_t size = net_settings_write_devices(out.data(), out.size(), id, &pump->devices);
+    net_access_send(pump->access, peer, NetChannel::control, out.data(), size);
+}
 
 // The stream's picture: 40x30 RGB565 with a pattern that changes with `n`.
 constexpr uint32_t STREAM_WIDTH = 40;
@@ -194,6 +204,31 @@ static void pump_once(Pump* pump)
             uint8_t out[256];
             size_t size = net_content_write_game_state(out, sizeof(out), &game);
             net_access_send(pump->access, event.peer, NetChannel::control, out, size);
+        }
+        else if (event.channel == NetChannel::control &&
+                 net_settings_read_devices_request(event.data, event.size, &id))
+        {
+            pump->devices_requests++;
+            host_send_devices(pump, event.peer, id);
+        }
+        else if (event.channel == NetChannel::control && event.size > 0 &&
+                 event.data[0] == static_cast<uint8_t>(NetSettingsMessage::device_port))
+        {
+            // As piccolo: on that port only, then the list again (id 0).
+            uint32_t controller = 0;
+            uint32_t device = 0;
+            int8_t port = -1;
+            if (net_settings_read_device_port(event.data, event.size, &controller, &device, &port))
+            {
+                for (size_t i = 0; i < pump->devices.size(); i++)
+                {
+                    if (pump->devices[i].controller == controller && pump->devices[i].device == device)
+                    {
+                        pump->devices[i].ports = static_cast<uint8_t>(port >= 0 ? 1u << port : 0u);
+                    }
+                }
+                host_send_devices(pump, event.peer, 0);
+            }
         }
         else if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_STREAM_TUNING)
         {
@@ -449,7 +484,44 @@ int main(int argc, char** argv)
         pump_once(&pump);
     }
     check(!pump.streaming, "stream_stop reaches the host");
+
+    // DEVICES (FULL): the host's list, a pad moved to port 3, the new list.
+    NetDevice host_pad;
+    host_pad.controller = 4;
+    host_pad.device = 0;
+    host_pad.kind = NetDeviceKind::gamepad;
+    host_pad.ports = 1;
+    host_pad.owner = NetDeviceOwner::host;
+    host_pad.name = "8BITDO SN30 1";
+    NetDevice phone = host_pad;
+    phone.controller = 9;
+    phone.kind = NetDeviceKind::network;
+    phone.ports = 2;
+    phone.owner = NetDeviceOwner::yours;
+    phone.name = "TEST PHONE 1";
+    pump.devices.push_back(host_pad);
+    pump.devices.push_back(phone);
+    hosts_request_devices(hosts);
+    double devices_end = now_seconds() + 5.0;
+    while (now_seconds() < devices_end && !hosts->devices_known)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->devices_known && hosts->devices.size() == 2 && hosts->devices[0].name == "8BITDO SN30 1" &&
+              hosts->devices[1].owner == NetDeviceOwner::yours && hosts->devices[1].ports == 2,
+          "DEVICES: the host's list arrives");
+    if (hosts->devices.size() == 2)
+    {
+        hosts_move_device(hosts, &hosts->devices[0], 2);
+    }
+    devices_end = now_seconds() + 5.0;
+    while (now_seconds() < devices_end && !(hosts->devices.size() == 2 && hosts->devices[0].ports == 4))
+    {
+        pump_once(&pump);
+    }
+    check(hosts->devices.size() == 2 && hosts->devices[0].ports == 4, "DEVICES: a pad moved to port 3, the new list");
     hosts_disconnect(hosts);
+    check(!hosts->devices_known && hosts->devices.empty(), "DEVICES: the list goes when leaving");
 
     // Discovery: the host answers at its last address, so it's online.
     double end = now_seconds() + 5.0;

@@ -73,7 +73,7 @@ pointers), big features on a branch until Andrés says to merge. Trailer:
 CMakeLists.txt     options, SDL, Vulkan, imgui, the libraries, piccoletto
 src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts.cfg), screens (NavAction),
                         the ☰ sheet, ROTATE, back key; for testing: --screen home|pair|gamepad|remote_play|
-                        devices|settings, --landscape, --aspect W:H (the stream's shape), --edit
+                        devices (over GAMEPAD, example list)|settings, --landscape, --aspect W:H (the stream's shape), --edit
 src/hosts.*             the network (frontend_net; the connection on frontends-common's net_client_service
                         thread, every hosts_* under its lock): this phone's identity, the paired hosts, LAN discovery,
                         pairing with the code, connecting, the ping, the speed test, the pad (RetroPad) and
@@ -106,7 +106,8 @@ src/remote_play_screen.* REMOTE PLAY: the picture as big as the stream's aspect 
                         portrait if it fits, else an overlay over the picture (landscape, DS)
 src/stream_view.*       REMOTE PLAY's picture: the newest decoded frame (no queue) in a texture of the core's
                         format, drawn with frontends-common's Picture (sharp bilinear); audio plays on the thread
-src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (placeholder devices)
+src/devices_overlay.*   DEVICES over GAMEPAD / REMOTE PLAY (☰, FULL access), see-through: the host's ports and who
+                        plays on each (devices / device_port), tap a device then MOVE HERE
 src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
 android/           the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),

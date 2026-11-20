@@ -18,7 +18,6 @@ struct HostAccess
 {
     bool gamepad     = false;
     bool remote_play = false;
-    bool devices     = false;   // may move the connected devices between ports
 };
 
 struct HomeHost

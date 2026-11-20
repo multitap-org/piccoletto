@@ -131,7 +131,7 @@ set(PICCOLETTO_SOURCES
     src/remote_play_screen.cpp
     src/stream_view.cpp
     src/pair_screen.cpp
-    src/devices_screen.cpp
+    src/devices_overlay.cpp
     src/pad_layouts.cpp
     src/pad_editor.cpp
     src/app_settings.cpp

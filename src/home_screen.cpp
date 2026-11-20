@@ -59,7 +59,7 @@ static void draw_bandwidth(const TouchUi* ui, const HomeHost* host, float x, flo
 // The buttons a host's card has: only the modes this phone was granted.
 static int32_t small_button_count(const HostAccess* access)
 {
-    return (access->remote_play ? 1 : 0) + (access->devices ? 1 : 0);
+    return access->remote_play ? 1 : 0;   // (DEVICES opens from the ☰ sheet inside the modes)
 }
 
 static float card_buttons_height(const HostAccess* access)
@@ -138,24 +138,10 @@ static NavAction draw_card(const TouchUi* ui, const HomeHost* host, float x, flo
     int32_t small_count = small_button_count(&host->access);
     if (small_count > 0)
     {
-        float small_width = small_count == 2 ? (inner_width - BUTTON_GAP) * 0.5f : inner_width;
-        float small_x = inner_x;
-        if (host->access.remote_play)
+        if (touch_ui_button(ui, "##remote_play", inner_x, button_y, inner_width, SMALL_BUTTON, "REMOTE PLAY",
+                            TouchButton::normal, TouchText::normal))
         {
-            if (touch_ui_button(ui, "##remote_play", small_x, button_y, small_width, SMALL_BUTTON, "REMOTE PLAY",
-                                TouchButton::normal, TouchText::normal))
-            {
-                action = NavAction::remote_play;
-            }
-            small_x += small_width + BUTTON_GAP;
-        }
-        if (host->access.devices)
-        {
-            if (touch_ui_button(ui, "##devices", small_x, button_y, small_width, SMALL_BUTTON, "DEVICES",
-                                TouchButton::normal, TouchText::normal))
-            {
-                action = NavAction::devices;
-            }
+            action = NavAction::remote_play;
         }
     }
     return action;

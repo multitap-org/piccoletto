@@ -37,6 +37,7 @@
 #include "net_content.h"
 #include "net_host.h"
 #include "net_input.h"
+#include "net_settings.h"   // NetDevice
 #include "net_speed.h"
 #include "screens.h"   // LinkShown
 #include "settings_file.h"
@@ -130,6 +131,11 @@ struct Hosts
     bool                   tuning_wanted = false;
     NetStreamTuning        tuning_result;       // what the host applies (stream_tuning_result)
     bool                   has_tuning_result = false;
+    // DEVICES (FULL access): who plays on the host's ports. Asked for once
+    // (hosts_request_devices); the host sends the list again whenever it changes.
+    bool                   devices_wanted = false;
+    bool                   devices_known = false;
+    std::vector<NetDevice> devices;
     NetClientRefusal       refusal = NetClientRefusal::none;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
 };
@@ -200,6 +206,13 @@ void hosts_set_frame_queue(Hosts* hosts, uint32_t depth);
 void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats);
 // Whether a game runs on the connected host: 1 yes, 0 no, -1 not known yet.
 int32_t hosts_game_running(const Hosts* hosts);
+
+// DEVICES: ask the connected host who plays on its ports (FULL access; also
+// after reconnecting). The list is in hosts->devices once devices_known.
+void hosts_request_devices(Hosts* hosts);
+// Puts a device of the list on `port` (0..3) only; -1 = on none (it joins
+// again with START). The host sends the new list.
+void hosts_move_device(Hosts* hosts, const NetDevice* device, int8_t port);
 
 // PAIR's progress line: still connecting (true) or checking the code.
 bool hosts_pair_connecting(Hosts* hosts);

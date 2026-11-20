@@ -13,7 +13,7 @@
 #include "app_paths.h"
 #include "app_settings.h"
 #include "app_shell.h"
-#include "devices_screen.h"
+#include "devices_overlay.h"
 #include "gamepad_screen.h"
 #include "haptics.h"
 #include "home_screen.h"
@@ -44,9 +44,11 @@ struct App
     TouchUi        ui         = {};
     Screen         screen     = Screen::home;
     bool           sheet_open = false;   // the ☰ sheet over GAMEPAD / REMOTE PLAY
+    bool           devices_open = false; // DEVICES over GAMEPAD / REMOTE PLAY (FULL access)
     HomeScreen     home       = {};
     PairScreen     pair       = {};
-    DevicesScreen  devices    = {};
+    DevicesOverlay devices    = {};
+    std::vector<NetDevice> example_devices;   // --screen devices without a host
     SettingsScreen settings_screen = {};
     PadLayouts     layouts    = {};
     PadEditor      editor     = {};
@@ -114,7 +116,6 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         shown->online = host->online;
         shown->access.gamepad = true;
         shown->access.remote_play = host->access != NetAccessLevel::gamepad;
-        shown->access.devices = host->access == NetAccessLevel::full;
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
         shown->can_measure = host->online && host->access != NetAccessLevel::gamepad;
@@ -252,7 +253,7 @@ static void go_to(App* app, Screen screen)
         hosts_cancel(&app->hosts);   // leaving PAIR stops a pairing that's still running
     }
     // The modes talk to the selected host: connected while one is open.
-    bool mode = screen == Screen::gamepad || screen == Screen::remote_play || screen == Screen::devices;
+    bool mode = screen == Screen::gamepad || screen == Screen::remote_play;
     if (app->screen == Screen::remote_play && screen != Screen::remote_play)
     {
         hosts_stream_stop(&app->hosts);   // the host stops sending; the next stream starts black
@@ -279,6 +280,10 @@ static void go_to(App* app, Screen screen)
     if (screen == Screen::pair)
     {
         pair_screen_reset(&app->pair);
+    }
+    if (!mode)
+    {
+        app->devices_open = false;   // (between GAMEPAD and REMOTE PLAY it stays open)
     }
     app->screen = screen;
     app->sheet_open = false;
@@ -318,7 +323,14 @@ static void handle_action(App* app, NavAction action)
             go_to(app, Screen::remote_play);
             break;
         case NavAction::devices:
-            go_to(app, Screen::devices);
+            // From the sheet: open it (FULL access only); from DEVICES: close it.
+            app->sheet_open = false;
+            app->devices_open = !app->devices_open && selected_full_access(app);
+            app->devices = DevicesOverlay{};
+            if (app->devices_open)
+            {
+                hosts_request_devices(&app->hosts);
+            }
             break;
         case NavAction::edit_layout:
             app->sheet_open = false;
@@ -348,6 +360,10 @@ static void go_back(App* app)
     if (app->sheet_open)
     {
         app->sheet_open = false;
+    }
+    else if (app->devices_open)
+    {
+        app->devices_open = false;
     }
     else if (app->screen == Screen::home && app->home.sidebar_open)
     {
@@ -406,7 +422,7 @@ static void update_gamepad_ui(App* app, double now)
         pads->changed = false;
     }
     bool on_pad = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
-                  !app->editor.active;
+                  !app->devices_open && !app->editor.active;
     ImGuiIO& io = ImGui::GetIO();
     if (on_pad)
     {
@@ -449,7 +465,7 @@ constexpr int32_t JOIN_START_FRAMES = 6;   // about 100 ms: a tap the host can't
 static void send_pad(App* app)
 {
     bool playing = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
-                   !app->editor.active;
+                   !app->devices_open && !app->editor.active;
     RetroPad pad;
     if (playing)
     {
@@ -554,7 +570,7 @@ static void draw_screen(App* app)
     NavAction action = NavAction::none;
     int32_t forget = -1;
     // The pads take fingers only while nothing covers them.
-    bool covered = app->sheet_open || (app->screen == Screen::home && app->home.sidebar_open);
+    bool covered = app->sheet_open || app->devices_open || (app->screen == Screen::home && app->home.sidebar_open);
     app->ui.fingers = covered ? nullptr : &app->fingers;
     app->ui.gamepad = &app->gamepad;
     app->focus = TouchFocus{};
@@ -598,9 +614,6 @@ static void draw_screen(App* app)
                                              selected_full_access(app), show_touch, &app->stream, &app->layouts,
                                              &app->editor);
             break;
-        case Screen::devices:
-            action = devices_screen_draw(&app->devices, &app->ui, selected_host(app));
-            break;
         case Screen::settings:
         {
             const char* names[MAX_SHOWN_HOSTS];
@@ -627,11 +640,48 @@ static void draw_screen(App* app)
         home_sidebar_draw(&app->home, &app->ui, shown, shown_count);
         touch_ui_end_screen();
     }
+    // DEVICES over the pads (the game shows through), in its own window.
+    if (app->devices_open && !app->sheet_open)
+    {
+        touch_ui_begin_overlay(&app->ui, "##devices_window");
+        DevicesMove move;
+        // --screen devices without a host: an example list.
+        std::vector<NetDevice>* example = &app->example_devices;
+        bool use_example = app->testing && app->hosts.link != LinkStatus::ready;
+        if (use_example && example->empty())
+        {
+            static const char* const NAMES[] = {"8BITDO SN30 1", "MY PHONE 1", "ANA'S PHONE 1", "KEYBOARD 1"};
+            static const uint8_t PORTS[] = {1, 2, 4, 1};
+            for (uint32_t i = 0; i < 4; i++)
+            {
+                NetDevice device;
+                device.controller = i;
+                device.kind = i == 3 ? NetDeviceKind::keyboard : (i == 0 ? NetDeviceKind::gamepad : NetDeviceKind::network);
+                device.ports = PORTS[i];
+                device.owner = i == 1 ? NetDeviceOwner::yours : (i == 2 ? NetDeviceOwner::other : NetDeviceOwner::host);
+                device.name = NAMES[i];
+                example->push_back(device);
+            }
+        }
+        const std::vector<NetDevice>* list = use_example ? example : &app->hosts.devices;
+        action = devices_overlay_draw(&app->devices, &app->ui, list, use_example || app->hosts.devices_known, &move);
+        if (use_example && move.move && move.index >= 0)
+        {
+            (*example)[static_cast<size_t>(move.index)].ports = static_cast<uint8_t>(1u << move.port);
+            move.move = false;
+        }
+        touch_ui_end_screen();
+        if (move.move && move.index >= 0 && move.index < static_cast<int32_t>(app->hosts.devices.size()))
+        {
+            hosts_move_device(&app->hosts, &app->hosts.devices[static_cast<size_t>(move.index)], move.port);
+        }
+    }
     // The sheet in its own window above the screen: the screen behind takes no taps.
     if (app->sheet_open)
     {
         touch_ui_begin_overlay(&app->ui, "##sheet_window");
-        action = menu_sheet_draw(&app->ui, app->screen, app->screen == Screen::remote_play && gamepad_connected, show_touch);
+        action = menu_sheet_draw(&app->ui, app->screen, app->screen == Screen::remote_play && gamepad_connected, show_touch,
+                                 selected_full_access(app));
         touch_ui_end_screen();
     }
     if (action != NavAction::none)
@@ -646,10 +696,9 @@ static void draw_screen(App* app)
 // 2:3 for the DS...), --edit opens GAMEPAD / REMOTE PLAY in EDIT LAYOUT.
 static bool parse_screen(const char* name, Screen* screen)
 {
-    static const char* const NAMES[] = {"home", "pair", "gamepad", "remote_play", "devices", "settings"};
-    static const Screen SCREENS[] = {Screen::home, Screen::pair, Screen::gamepad, Screen::remote_play, Screen::devices,
-                                     Screen::settings};
-    for (int32_t i = 0; i < 6; i++)
+    static const char* const NAMES[] = {"home", "pair", "gamepad", "remote_play", "settings"};
+    static const Screen SCREENS[] = {Screen::home, Screen::pair, Screen::gamepad, Screen::remote_play, Screen::settings};
+    for (int32_t i = 0; i < 5; i++)
     {
         if (SDL_strcmp(name, NAMES[i]) == 0)
         {
@@ -779,12 +828,12 @@ int main(int argc, char** argv)
     SDL_Log("piccoletto %s", PICCOLETTO_VERSION);
 
     App* app = new App{};
-    devices_screen_init(&app->devices);
     pad_layouts_init(&app->layouts);
 
     Screen first = Screen::home;
     bool landscape = false;
     bool edit = false;
+    bool open_devices = false;
     for (int i = 1; i < argc; i++)
     {
         if (SDL_strcmp(argv[i], "--landscape") == 0)
@@ -798,6 +847,14 @@ int main(int argc, char** argv)
         else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && parse_screen(argv[i + 1], &first))
         {
             app->testing = true;
+            i++;
+        }
+        else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && SDL_strcmp(argv[i + 1], "devices") == 0)
+        {
+            // DEVICES over GAMEPAD, with an example list (no host needed).
+            first = Screen::gamepad;
+            app->testing = true;
+            open_devices = true;
             i++;
         }
         else if (SDL_strcmp(argv[i], "--aspect") == 0 && i + 1 < argc && parse_aspect(argv[i + 1], &app->stream))
@@ -861,6 +918,7 @@ int main(int argc, char** argv)
 
     go_to(app, first);
     app->editor.active = edit && (first == Screen::gamepad || first == Screen::remote_play);
+    app->devices_open = open_devices;
     app->running = true;
     while (app->running)
     {
@@ -878,8 +936,7 @@ int main(int argc, char** argv)
         hosts_update(&app->hosts, now);
         // The modes need the host (Andrés): when the connection drops, or
         // can't be made, back to HOME.
-        bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play ||
-                       app->screen == Screen::devices;
+        bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
         if (in_mode && app->hosts.link == LinkStatus::failed && !app->testing)
         {
             SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));

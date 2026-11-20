@@ -502,6 +502,16 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         }
         return;
     }
+    // DEVICES: who plays on the host's ports (asked for, then sent whenever it changes).
+    if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::devices))
+    {
+        uint32_t id = 0;
+        if (net_settings_read_devices(event->data, event->size, &id, &hosts->devices))
+        {
+            hosts->devices_known = true;
+        }
+        return;
+    }
     // Whether a game runs (sent when connected and when it changes).
     if (event->size > 0 && event->data[0] == NET_GAME_STATE_MESSAGE)
     {
@@ -526,6 +536,22 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
             hosts->pad_port = controllers.pad_ports[0];
             hosts->controllers_known = true;
         }
+    }
+}
+
+// devices_request to the host (under the lock).
+static void send_devices_request(Hosts* hosts)
+{
+    if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0 ||
+        hosts->known[static_cast<size_t>(hosts->linked)].access != NetAccessLevel::full)
+    {
+        return;
+    }
+    uint8_t message[16];
+    size_t size = net_settings_write_devices_request(message, sizeof(message), hosts->next_request++);
+    if (size > 0)
+    {
+        net_client_send(&hosts->net.client, NetChannel::control, message, size);
     }
 }
 
@@ -582,6 +608,9 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->pad_port = -1;
                 hosts->controllers_known = false;
                 hosts->game_known = false;
+                hosts->devices_known = false;
+                hosts->devices.clear();
+                send_devices_request(hosts);
                 if (hosts->stream_flags != 0)
                 {
                     bool asked = net_client_service_set_stream(&hosts->net, hosts->stream_flags);
@@ -625,6 +654,16 @@ static void update_locked(Hosts* hosts, double now)
                 KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
                 host->access = event.access;
                 write_info(hosts, host);
+                // Raised to FULL with DEVICES wanted: ask now; lowered: the list goes.
+                if (event.access == NetAccessLevel::full)
+                {
+                    send_devices_request(hosts);
+                }
+                else
+                {
+                    hosts->devices_known = false;
+                    hosts->devices.clear();
+                }
                 // Raised to STREAM while connected: measure now.
                 if (event.access != NetAccessLevel::gamepad && !host->measured && !hosts->speed.running)
                 {
@@ -667,6 +706,8 @@ static void update_locked(Hosts* hosts, double now)
         case NetClientEventType::closed:
             hosts->speed.running = false;
             hosts->game_known = false;
+            hosts->devices_known = false;
+            hosts->devices.clear();
             if (hosts->link == LinkStatus::ready)
             {
                 hosts->link = LinkStatus::failed;
@@ -803,6 +844,9 @@ void hosts_disconnect(Hosts* hosts)
     hosts->speed.running = false;
     hosts->has_stats = false;
     hosts->connect_pending = false;
+    hosts->devices_wanted = false;   // the next mode asks again if it shows DEVICES
+    hosts->devices_known = false;
+    hosts->devices.clear();
     hosts->measure_wanted = false;
     hosts->measure_only = false;
     hosts->link = LinkStatus::idle;
@@ -992,6 +1036,34 @@ bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* widt
                       FramePixelFormat* format, uint32_t* frame, NetStreamInfo* info)
 {
     return hosts->ok && net_client_service_take_frame(&hosts->net, pixels, width, height, format, frame, info);
+}
+
+void hosts_request_devices(Hosts* hosts)
+{
+    hosts->devices_wanted = true;
+    if (hosts->ok)
+    {
+        net_client_service_lock(&hosts->net);
+        send_devices_request(hosts);
+        net_client_service_unlock(&hosts->net);
+    }
+}
+
+void hosts_move_device(Hosts* hosts, const NetDevice* device, int8_t port)
+{
+    if (!hosts->ok || hosts->link != LinkStatus::ready)
+    {
+        return;
+    }
+    uint8_t message[16];
+    size_t size = net_settings_write_device_port(message, sizeof(message), device->controller, device->device, port);
+    if (size > 0)
+    {
+        net_client_service_lock(&hosts->net);
+        net_client_send(&hosts->net.client, NetChannel::control, message, size);
+        net_client_service_unlock(&hosts->net);
+        SDL_Log("Network: %s to port %d", device->name.c_str(), port + 1);
+    }
 }
 
 void hosts_set_stream_tuning(Hosts* hosts, const NetStreamTuning* tuning)
