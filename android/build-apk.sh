@@ -66,8 +66,10 @@ find "$apk_dir/classes" -name '*.class' > "$apk_dir/classes.txt"
     --lib "$ANDROID_JAR" --output "$apk_dir/dex" @"$apk_dir/classes.txt"
 
 echo "== package"
-# Resources: the launcher icon and the TV banner (android/res, exported from assets/branding).
-aapt2 compile --dir "$here/res" -o "$apk_dir/res.zip"
+# Resources: the adaptive launcher icon (with the themed monochrome layer) and
+# the TV banner, straight from assets/branding/android/res (one copy: no
+# exports kept here to fall behind).
+aapt2 compile --dir "$root/assets/branding/android/res" -o "$apk_dir/res.zip"
 # Assets: REMOTE PLAY's shader presets (deps/piccolo-shaders) with a list of
 # their files, which the app copies out to its own folder (librashader reads
 # plain files, not the APK).

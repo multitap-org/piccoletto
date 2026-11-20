@@ -29,7 +29,7 @@
     <!-- VIBRATE ON PRESS (SETTINGS). -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Icon and TV banner: assets/branding (android/res holds their exports). -->
+    <!-- Icon (adaptive) and TV banner: assets/branding/android/res. -->
     <application android:label="piccoletto"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/banner"

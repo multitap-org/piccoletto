@@ -118,9 +118,9 @@ android/           build-librashader.sh: librashader for arm64 Android (rustup's
                    NDK sysroot, Vulkan only) -> build/librashader/librashader.so, which build-apk.sh packs;
                    the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
-                   AndroidManifest.xml (site.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV),
-                   res/ (launcher icon, TV banner: exports of assets/branding)
-assets/branding/   icon, logo, TV banner (README: colors, type, how to export)
+                   AndroidManifest.xml (site.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV);
+                   the icon and banner come from assets/branding/android/res
+assets/branding/   icon (android/: adaptive), logo, TV banner light / dark (README: colors, type, how to export)
 flatpak/           site.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
 .github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64)
 tests/             hosts_test.cpp (hosts against a host in the same process: pairing, connecting, discovery)
