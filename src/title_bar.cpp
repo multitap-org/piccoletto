@@ -121,14 +121,31 @@ static void ping_text(const PadLink* link, char* out, size_t capacity)
     {
         // The loss rounded; a little but not none says "<1%".
         float percent = link->loss * 100.0f;
+        int written = 0;
         if (percent > 0.0f && percent < 1.0f)
         {
-            std::snprintf(out, capacity, "%u MS <1%%", static_cast<unsigned>(link->ping_ms));
+            written = std::snprintf(out, capacity, "%u MS <1%%", static_cast<unsigned>(link->ping_ms));
         }
         else
         {
-            std::snprintf(out, capacity, "%u MS %u%%", static_cast<unsigned>(link->ping_ms),
-                          static_cast<unsigned>(percent + 0.5f));
+            written = std::snprintf(out, capacity, "%u MS %u%%", static_cast<unsigned>(link->ping_ms),
+                                    static_cast<unsigned>(percent + 0.5f));
+        }
+        // REMOTE PLAY: frames a second and the stream's rate (and losses, when there are any).
+        if (link->streaming && written > 0 && static_cast<size_t>(written) < capacity)
+        {
+            char* rest = out + written;
+            size_t room = capacity - static_cast<size_t>(written);
+            if (link->lost > 0)
+            {
+                std::snprintf(rest, room, " · %u FPS %.1f MBPS %u LOST", static_cast<unsigned>(link->fps),
+                              static_cast<double>(link->kbps) / 1000.0, static_cast<unsigned>(link->lost));
+            }
+            else
+            {
+                std::snprintf(rest, room, " · %u FPS %.1f MBPS", static_cast<unsigned>(link->fps),
+                              static_cast<double>(link->kbps) / 1000.0);
+            }
         }
     }
     else
@@ -142,7 +159,7 @@ constexpr float BARS_WIDTH = 3.0f * BAR_WIDTH + 2.0f * BAR_GAP + 5.0f;   // with
 
 float title_bar_ping_width(const TouchUi* ui, const PadLink* link)
 {
-    char text[32];
+    char text[64];
     ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text_width(ui, text, TouchText::normal);
 }
@@ -166,7 +183,7 @@ float title_bar_ping(const TouchUi* ui, float x, float y, const PadLink* link, u
         touch_ui_rect(ui, x + static_cast<float>(i) * (BAR_WIDTH + BAR_GAP), bottom - height, BAR_WIDTH, height,
                       i < lit ? color : palette->panel_dark);
     }
-    char text[32];
+    char text[64];
     ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text(ui, x + BARS_WIDTH, y, text, text_argb, TouchText::normal);
 }

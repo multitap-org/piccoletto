@@ -129,6 +129,7 @@ set(PICCOLETTO_SOURCES
     src/pad_layout.cpp
     src/gamepad_screen.cpp
     src/remote_play_screen.cpp
+    src/stream_view.cpp
     src/pair_screen.cpp
     src/devices_screen.cpp
     src/pad_layouts.cpp

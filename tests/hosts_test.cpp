@@ -3,19 +3,23 @@
 // loopback: pairing with the code, a wrong code, connecting again as a
 // paired phone with the level the host gives, the ping, a speed test, the
 // host online through discovery, FORGET telling the host, the host
-// unpairing the phone.
+// unpairing the phone; REMOTE PLAY's stream (stream_start, game_state,
+// stream_info, a coded frame arriving exact, stream_stop).
 //
 //   piccoletto_hosts_test <scratch folder>
 
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
 #include "host_fs.h"
 #include "hosts.h"
 #include "net_access.h"
+#include "net_content.h"
+#include "net_stream.h"
 #include "net_settings.h"
 #include "net_speed.h"
 #include "retropad.h"
@@ -48,7 +52,53 @@ struct Pump
     bool             reporting = false;
     uint16_t         last_buttons = 0;   // the newest RetroPad the phone sent
     uint32_t         retropads = 0;      // how many RetroPad packets came
+    bool             streaming = false;  // the phone asked for the stream (stream_start, no stop since)
+    uint32_t         stream_peer = 0;
+    uint8_t          stream_flags = 0;
 };
+
+// The stream's picture: 40x30 RGB565 with a pattern that changes with `n`.
+constexpr uint32_t STREAM_WIDTH = 40;
+constexpr uint32_t STREAM_HEIGHT = 30;
+
+static void stream_picture(std::vector<uint8_t>* pixels, uint32_t n)
+{
+    pixels->resize(STREAM_WIDTH * STREAM_HEIGHT * 2);
+    for (size_t i = 0; i < pixels->size(); i++)
+    {
+        (*pixels)[i] = static_cast<uint8_t>((i * 7 + n * 13) & 0xFF);
+    }
+}
+
+// As piccolo's net_service, for one frame: stream_info, the frame coded as a
+// keyframe in chunks, and a piece of audio.
+static void host_stream_frame(Pump* pump, uint32_t n, const std::vector<uint8_t>* pixels)
+{
+    NetStreamInfo info;
+    info.width = STREAM_WIDTH;
+    info.height = STREAM_HEIGHT;
+    info.format = FramePixelFormat::rgb565;
+    info.aspect = 4.0 / 3.0;
+    info.fps = 60.0;
+    info.sample_rate = 32040.0;
+    std::vector<uint8_t> packet(NET_STREAM_VIDEO_HEADER + NET_STREAM_CHUNK + 64);
+    size_t size = net_stream_write_info(packet.data(), packet.size(), &info);
+    net_access_send(pump->access, pump->stream_peer, NetChannel::control, packet.data(), size);
+    FrameDeltaEncoder encoder;
+    std::vector<uint8_t> coded(frame_delta_max_size(STREAM_WIDTH, STREAM_HEIGHT, FramePixelFormat::rgb565));
+    size_t coded_size = frame_delta_encode(&encoder, pixels->data(), STREAM_WIDTH, STREAM_HEIGHT,
+                                           FramePixelFormat::rgb565, true, coded.data());
+    uint32_t chunks = net_stream_chunk_count(coded_size);
+    for (uint32_t chunk = 0; chunk < chunks; chunk++)
+    {
+        size = net_stream_write_video(packet.data(), packet.size(), n, true, coded.data(), coded_size, chunk);
+        net_access_send(pump->access, pump->stream_peer, NetChannel::stream, packet.data(), size);
+    }
+    int16_t samples[2 * 64] = {};
+    std::vector<uint8_t> audio(NET_STREAM_AUDIO_HEADER + sizeof(samples));
+    size = net_stream_write_audio(audio.data(), audio.size(), n, info.sample_rate, samples, 0, 64);
+    net_access_send(pump->access, pump->stream_peer, NetChannel::stream, audio.data(), size);
+}
 
 // As piccolo's net_speed_request / net_speed_update.
 static void host_speed_request(Pump* pump, const NetAccessEvent* event)
@@ -125,9 +175,28 @@ static void pump_once(Pump* pump)
         uint8_t pad = 0;
         NetRetroPadState states[NET_INPUT_HISTORY];
         uint32_t count = 0;
+        uint8_t flags = 0;
         if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_SPEED_REQUEST)
         {
             host_speed_request(pump, &event);
+        }
+        else if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_STREAM_START &&
+                 net_stream_read_start(event.data, event.size, &flags))
+        {
+            pump->streaming = true;
+            pump->stream_peer = event.peer;
+            pump->stream_flags = flags;
+            // As piccolo: a game runs.
+            NetGameState game;
+            game.running = true;
+            game.core_name = "Test";
+            uint8_t out[256];
+            size_t size = net_content_write_game_state(out, sizeof(out), &game);
+            net_access_send(pump->access, event.peer, NetChannel::control, out, size);
+        }
+        else if (event.channel == NetChannel::control && event.size == 1 && event.data[0] == NET_STREAM_STOP)
+        {
+            pump->streaming = false;
         }
         else if (event.channel == NetChannel::control &&
                  net_settings_read_controllers_request(event.data, event.size, &id))
@@ -310,6 +379,53 @@ int main(int argc, char** argv)
     end_wait(&pump, 20.0);
     check(!hosts->speed.running, "the speed test ends");
     check(!hosts->known.empty() && hosts->known[0].down_kbps > 0 && hosts->known[0].up_kbps > 0, "speeds measured");
+
+    // REMOTE PLAY: the stream is asked for, a frame arrives exact, it stops.
+    hosts_stream_start(hosts);
+    double stream_end = now_seconds() + 5.0;
+    while (now_seconds() < stream_end && !pump.streaming)
+    {
+        pump_once(&pump);
+    }
+    check(pump.streaming && pump.stream_flags == (NET_STREAM_WANT_VIDEO | NET_STREAM_WANT_AUDIO),
+          "stream_start reaches the host (video and audio)");
+    std::vector<uint8_t> sent;
+    std::vector<uint8_t> got;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    FramePixelFormat format = FramePixelFormat::xrgb8888;
+    uint32_t frame = 0;
+    NetStreamInfo info;
+    bool exact = false;
+    for (uint32_t n = 1; n <= 10 && pump.streaming; n++)
+    {
+        stream_picture(&sent, n);
+        host_stream_frame(&pump, n, &sent);
+        for (int32_t i = 0; i < 50; i++)
+        {
+            pump_once(&pump);
+            if (hosts_take_frame(hosts, &got, &width, &height, &format, &frame, &info))
+            {
+                exact = frame == n && width == STREAM_WIDTH && height == STREAM_HEIGHT &&
+                        format == FramePixelFormat::rgb565 && got.size() == sent.size() &&
+                        std::memcmp(got.data(), sent.data(), sent.size()) == 0 &&
+                        info.aspect > 1.333 && info.aspect < 1.334;   // (sent as text)
+                break;
+            }
+        }
+    }
+    check(exact, "the host's frames arrive exact, with their stream_info");
+    check(hosts_game_running(hosts) == 1, "a game runs (game_state)");
+    NetClientStreamStats stream_stats;
+    hosts_stream_stats(hosts, &stream_stats);
+    check(stream_stats.frames >= 9 && stream_stats.audio_samples >= 9 * 64, "frames and audio counted");
+    hosts_stream_stop(hosts);
+    stream_end = now_seconds() + 5.0;
+    while (now_seconds() < stream_end && pump.streaming)
+    {
+        pump_once(&pump);
+    }
+    check(!pump.streaming, "stream_stop reaches the host");
     hosts_disconnect(hosts);
 
     // Discovery: the host answers at its last address, so it's online.

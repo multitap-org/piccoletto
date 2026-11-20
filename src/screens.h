@@ -47,4 +47,9 @@ struct PadLink
     LinkShown state   = LinkShown::offline;
     uint32_t  ping_ms = 0;      // round trip
     float     loss    = 0.0f;   // packets lost, 0..1
+    // REMOTE PLAY: the stream over the last second.
+    bool      streaming = false;
+    uint32_t  fps = 0;          // frames that arrived whole
+    uint32_t  kbps = 0;         // what the stream took
+    uint32_t  lost = 0;         // frames lost
 };

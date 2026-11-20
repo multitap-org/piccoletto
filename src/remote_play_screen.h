@@ -6,7 +6,8 @@
 // room left under it. When there isn't enough room (landscape, or a picture
 // taller than wide in portrait) the pad becomes an overlay over the picture,
 // see-through, movable and resizable (EDIT LAYOUT).
-// No video yet: the picture's place shows the stream's size and aspect.
+// The picture is the host's stream (stream_view.h); until it comes, its
+// place says why (connecting, no game running, waiting) with the size and aspect.
 
 #include <cstdint>
 
@@ -15,6 +16,9 @@
 #include "screens.h"
 #include "touch_ui.h"
 
+struct AppShell;
+struct StreamView;
+
 // What the host streams (placeholder values until there's a stream).
 struct RemoteStream
 {
@@ -22,6 +26,10 @@ struct RemoteStream
     int32_t     height = 224;
     float       aspect = 4.0f / 3.0f;   // the picture's shape on screen (width / height)
     const char* aspect_label = "4:3";
+    char        label[16] = {};         // the stream's aspect as text (aspect_label points here then)
+    StreamView* view = nullptr;         // the picture (nullptr: the placeholder only)
+    AppShell*   shell = nullptr;
+    const char* status = nullptr;       // instead of the picture: why there's none ("NO GAME RUNNING"...)
 };
 
 // `full_access`: the host gave this phone every mode (the HOTKEY button).

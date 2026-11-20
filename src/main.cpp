@@ -33,6 +33,7 @@
 #include "screens.h"
 #include "settings_file.h"
 #include "settings_screen.h"
+#include "stream_view.h"
 #include "touch_fingers.h"
 #include "touch_ui.h"
 
@@ -49,7 +50,11 @@ struct App
     SettingsScreen settings_screen = {};
     PadLayouts     layouts    = {};
     PadEditor      editor     = {};
-    RemoteStream   stream     = {};   // placeholder until there's a stream
+    RemoteStream   stream     = {};   // the stream's shape (placeholder until there's one)
+    StreamView     stream_view = {};  // REMOTE PLAY's picture
+    NetClientStreamStats stream_last = {};   // the stream's counts a second ago
+    double         stream_sampled = 0.0;     // when they were taken
+    PadLink        stream_rates = {};        // the last second's fps, rate, losses
     AppSettings    settings   = {};
     TouchFingers   fingers    = {};   // every finger, for the pads
     TouchFocus     focus      = {};   // the gamepad's focus this frame (SETTINGS scrolls to it)
@@ -248,9 +253,18 @@ static void go_to(App* app, Screen screen)
     }
     // The modes talk to the selected host: connected while one is open.
     bool mode = screen == Screen::gamepad || screen == Screen::remote_play || screen == Screen::devices;
+    if (app->screen == Screen::remote_play && screen != Screen::remote_play)
+    {
+        hosts_stream_stop(&app->hosts);   // the host stops sending; the next stream starts black
+        stream_view_clear(&app->stream_view);
+    }
     if (mode)
     {
         hosts_connect(&app->hosts, app->home.selected);
+    }
+    if (screen == Screen::remote_play && app->screen != Screen::remote_play)
+    {
+        hosts_stream_start(&app->hosts);   // now, or as soon as the connection is ready
     }
     else if (screen != app->screen)
     {
@@ -553,6 +567,13 @@ static void draw_screen(App* app)
     HomeHost shown[MAX_SHOWN_HOSTS];
     int32_t shown_count = home_hosts(app, shown);
     PadLink link = hosts_pad_link(&app->hosts);
+    if (app->screen == Screen::remote_play)
+    {
+        link.streaming = app->stream_rates.streaming;
+        link.fps = app->stream_rates.fps;
+        link.kbps = app->stream_rates.kbps;
+        link.lost = app->stream_rates.lost;
+    }
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
     {
@@ -631,6 +652,67 @@ static bool parse_screen(const char* name, Screen* screen)
         }
     }
     return false;
+}
+
+// REMOTE PLAY: the newest picture uploaded; the stream's shape, or why
+// there's no picture.
+static void update_stream(App* app)
+{
+    RemoteStream* stream = &app->stream;
+    stream->view = &app->stream_view;
+    stream->shell = &app->shell;
+    if (app->screen != Screen::remote_play)
+    {
+        return;
+    }
+    StreamView* view = &app->stream_view;
+    stream_view_update(view, &app->hosts, &app->shell);
+    // The last second's rates, for the status line.
+    double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
+    if (now - app->stream_sampled >= 1.0)
+    {
+        NetClientStreamStats stats;
+        hosts_stream_stats(&app->hosts, &stats);
+        double seconds = app->stream_sampled > 0.0 ? now - app->stream_sampled : 1.0;
+        bool continued = stats.frames >= app->stream_last.frames;   // not restarted since
+        PadLink* rates = &app->stream_rates;
+        rates->streaming = app->hosts.link == LinkStatus::ready && continued;
+        rates->fps = continued ? static_cast<uint32_t>((stats.frames - app->stream_last.frames) / seconds + 0.5) : 0;
+        rates->kbps = continued ? static_cast<uint32_t>(static_cast<double>(stats.bytes - app->stream_last.bytes) * 8.0 /
+                                                        seconds / 1000.0)
+                                : 0;
+        rates->lost = continued ? stats.lost - app->stream_last.lost : 0;
+        app->stream_last = stats;
+        app->stream_sampled = now;
+    }
+    if (view->has_picture && view->width > 0 && view->height > 0)
+    {
+        stream->width = static_cast<int32_t>(view->width);
+        stream->height = static_cast<int32_t>(view->height);
+        double aspect = view->info.aspect > 0.0 ? view->info.aspect
+                                                : static_cast<double>(view->width) / static_cast<double>(view->height);
+        stream->aspect = static_cast<float>(aspect);
+        SDL_snprintf(stream->label, sizeof(stream->label), "%.2f", aspect);
+        stream->aspect_label = stream->label;
+        stream->status = nullptr;
+        return;
+    }
+    if (app->testing && app->hosts.link != LinkStatus::ready)
+    {
+        stream->status = nullptr;   // --screen without a host: the placeholder
+    }
+    else if (app->hosts.link != LinkStatus::ready)
+    {
+        stream->status = "CONNECTING…";
+    }
+    else if (hosts_game_running(&app->hosts) == 0)
+    {
+        stream->status = "NO GAME RUNNING";
+    }
+    else
+    {
+        stream->status = "WAITING FOR THE PICTURE…";
+    }
 }
 
 static bool parse_aspect(const char* text, RemoteStream* stream)
@@ -763,7 +845,9 @@ int main(int argc, char** argv)
             SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
             go_to(app, Screen::home);
         }
+        update_stream(app);
         draw_screen(app);
+        stream_view_record(&app->stream_view, &app->shell);
         send_pad(app);
         if (app->fingers.presses > 0 && app->settings.vibrate)
         {
@@ -785,6 +869,7 @@ int main(int argc, char** argv)
     go_to(app, Screen::home);   // saves what the current screen holds (settings, a layout being edited)
     haptics_close(&app->haptics);
     hosts_destroy(&app->hosts);
+    stream_view_destroy(&app->stream_view, &app->shell);
     real_gamepad_close(&app->gamepad);
     app_shell_destroy(&app->shell);
     delete app;

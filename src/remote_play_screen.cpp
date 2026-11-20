@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "pixel_font_imgui.h"
+#include "stream_view.h"
 #include "title_bar.h"
 
 // The line under the picture in portrait (the port LEDs, the host, the latency), retro pixels.
@@ -19,10 +20,15 @@ static void draw_picture(const TouchUi* ui, const RemoteStream* stream, float x,
 {
     const RetroUiPalette* palette = &ui->palette;
     touch_ui_rect(ui, x, y, width, height, palette->field_face);
+    if (stream->view != nullptr && stream->shell != nullptr &&
+        stream_view_draw(stream->view, ui, stream->shell, x, y, width, height))
+    {
+        return;
+    }
     char size[48];
     std::snprintf(size, sizeof(size), "%d×%d · %s", static_cast<int>(stream->width), static_cast<int>(stream->height),
                   stream->aspect_label);
-    const char* label = "GAME VIDEO";
+    const char* label = stream->status != nullptr ? stream->status : "GAME VIDEO";
     float line = touch_ui_text_height(ui, TouchText::normal);
     float middle = y + height * 0.5f;
     touch_ui_text(ui, std::floor(x + (width - touch_ui_text_width(ui, label, TouchText::normal)) * 0.5f), std::floor(middle - line),
