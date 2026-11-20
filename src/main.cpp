@@ -737,11 +737,10 @@ static void apply_pacing(App* app)
         tuning.delay = pacing == StreamPacing::smooth ? NetStreamDelay::host : NetStreamDelay::automatic;
         hosts_set_stream_tuning(&app->hosts, &tuning);
     }
-    Renderer* renderer = &app->shell.renderer;
-    if (renderer->frames_in_flight != in_flight || renderer->wait_for_present != start_late)
+    if (app_shell_frames_in_flight(&app->shell) != in_flight || app_shell_wait_for_present(&app->shell) != start_late)
     {
-        renderer_set_frames_in_flight(renderer, &app->shell.vulkan, in_flight);
-        renderer->wait_for_present = start_late;
+        app_shell_set_frames_in_flight(&app->shell, in_flight);
+        app_shell_set_wait_for_present(&app->shell, start_late);
         SDL_Log("REMOTE PLAY pacing: %s", pacing == StreamPacing::latency ? "latency" :
                                          (pacing == StreamPacing::smooth ? "smooth" : "balanced"));
     }
