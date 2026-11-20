@@ -37,7 +37,7 @@ static std::string key_section(const uint8_t* key)
 
 static bool same_address(NetAddress a, NetAddress b)
 {
-    return a.host == b.host && a.port == b.port;
+    return net_address_equal(a, b);   // (IPv4 or IPv6)
 }
 
 // What hosts.cfg says about a host (address, access level).
@@ -1178,6 +1178,10 @@ const char* hosts_refusal_text(NetClientRefusal refusal)
     case NetClientRefusal::wrong_code:     return "WRONG CODE";
     case NetClientRefusal::unknown_host:   return "NOT THE DEVICE YOU PAIRED WITH";
     case NetClientRefusal::connection:     return "CAN'T REACH IT";
+    // Across the internet (not used yet: piccoletto connects on the LAN).
+    case NetClientRefusal::beacon_unreachable: return "NO ANSWER FROM THE INTERNET SERVER";
+    case NetClientRefusal::host_offline:   return "IT ISN'T ONLINE";
+    case NetClientRefusal::no_route:       return "COULDN'T CONNECT";
     }
     return "";
 }

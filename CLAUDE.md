@@ -47,7 +47,8 @@ piccoletto builds on its own: every dependency is a submodule in `deps/`.
 - `deps/common/hosts-common`      CMake helpers (`cmake/multitap.cmake`), host_fs, logging
 - `deps/common/frontends-common`  window, Vulkan, swapchain, ImGui glue (app_shell), settings, input, netcode (frontend_net)
 - `deps/common/retroui`           pixel font, themes, themed ImGui widgets, pad picture (shared with piccolo)
-- third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode`, `deps/enet`, `deps/monocypher` (frontends-common needs them),
+- third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode`, `deps/enet` (zpl-c's, IPv6), `deps/monocypher`,
+  `deps/beacon` (multitap-beacon: across the internet) (frontends-common needs them),
   `deps/librashader` (its MIT C header; the library is built for Android by android/build-librashader.sh and loaded at
   run time), `deps/piccolo-shaders` (the curated presets, branch `piccolo`)
 
@@ -154,7 +155,7 @@ The screen follows the phone (SDL's "full user", so the system rotation lock
 is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
 tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
-24 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
+25 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no
 ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 
