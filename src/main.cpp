@@ -552,8 +552,7 @@ static void draw_screen(App* app)
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
     HomeHost shown[MAX_SHOWN_HOSTS];
     int32_t shown_count = home_hosts(app, shown);
-    uint32_t ping_ms = 0;
-    LinkShown link = hosts_link_shown(&app->hosts, &ping_ms);
+    PadLink link = hosts_pad_link(&app->hosts);
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
     {
@@ -564,11 +563,11 @@ static void draw_screen(App* app)
             action = draw_pair(app);
             break;
         case Screen::gamepad:
-            action = gamepad_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), link, ping_ms,
+            action = gamepad_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), &link,
                                          selected_full_access(app), &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
-            action = remote_play_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), link, ping_ms,
+            action = remote_play_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), &link,
                                              selected_full_access(app), show_touch, &app->stream, &app->layouts,
                                              &app->editor);
             break;

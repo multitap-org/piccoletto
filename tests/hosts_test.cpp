@@ -278,8 +278,7 @@ int main(int argc, char** argv)
         pump_once(&pump);
     }
     check(hosts->has_stats, "the ping while connected");
-    uint32_t ping_ms = 0;
-    check(hosts_link_shown(hosts, &ping_ms) == LinkShown::ready, "the status shows the ping");
+    check(hosts_pad_link(hosts).state == LinkShown::ready, "the status shows the ping");
     check(hosts_pad_port(hosts) == 1, "the pad's port from the host's controllers");
 
     // The pad: A and START held reach the host as a RetroPad.
@@ -296,7 +295,7 @@ int main(int argc, char** argv)
     check(!hosts->speed.running && !hosts->known[0].measured, "no speed test at gamepad level");
     hosts_disconnect(hosts);
     check(hosts_pad_port(hosts) == 0, "no port once left");
-    check(hosts_link_shown(hosts, &ping_ms) == LinkShown::offline, "offline once left");
+    check(hosts_pad_link(hosts).state == LinkShown::offline, "offline once left");
 
     // The host raises our level: the next connection brings it, and runs the
     // speed test (STREAM access or more, once per run).

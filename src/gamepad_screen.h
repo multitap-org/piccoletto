@@ -16,6 +16,6 @@
 // `host`: its name; `port`: 1-based, as shown. While editor->active the
 // current layout is edited instead of played (NavAction::edit_done at DONE).
 // `full_access`: the host gave this phone every mode (the HOTKEY button).
-// `link`, `ping_ms`: the connection to the host, for the status line.
-NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, LinkShown link, uint32_t ping_ms,
+// `link`: the connection to the host (ping, loss), for the status line.
+NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, const PadLink* link,
                               bool full_access, PadLayouts* layouts, PadEditor* editor);

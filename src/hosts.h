@@ -169,8 +169,8 @@ bool hosts_measuring(const Hosts* hosts, int32_t index);
 // here; else only here. The list changes when it's done.
 void hosts_forget(Hosts* hosts, int32_t index);
 
-// The pads' status: offline, connecting, or ready with the last ping.
-LinkShown hosts_link_shown(const Hosts* hosts, uint32_t* ping_ms);
+// The pads' status: offline, connecting, or ready with the last ping and loss.
+PadLink hosts_pad_link(const Hosts* hosts);
 
 // "192.168.1.20" or "192.168.1.20:55420" (the default port when there's none).
 bool hosts_parse_address(const char* text, NetAddress* address);

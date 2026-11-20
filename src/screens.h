@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 // What a screen asks the app to do when something on it is tapped.
 
 enum class NavAction
@@ -38,4 +40,11 @@ enum class LinkShown
     offline,
     connecting,
     ready,       // with a ping
+};
+
+struct PadLink
+{
+    LinkShown state   = LinkShown::offline;
+    uint32_t  ping_ms = 0;      // round trip
+    float     loss    = 0.0f;   // packets lost, 0..1
 };

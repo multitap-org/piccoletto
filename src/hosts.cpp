@@ -845,18 +845,20 @@ int32_t hosts_pad_port(const Hosts* hosts)
     return hosts->link == LinkStatus::ready && hosts->pad_port >= 0 ? hosts->pad_port + 1 : 0;
 }
 
-LinkShown hosts_link_shown(const Hosts* hosts, uint32_t* ping_ms)
+PadLink hosts_pad_link(const Hosts* hosts)
 {
-    *ping_ms = hosts->stats.round_trip_ms;
+    PadLink link;
+    link.ping_ms = hosts->stats.round_trip_ms;
+    link.loss = hosts->stats.loss;
     if (hosts->link == LinkStatus::ready && hosts->has_stats)
     {
-        return LinkShown::ready;
+        link.state = LinkShown::ready;
     }
-    if (hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready)
+    else if (hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready)
     {
-        return LinkShown::connecting;
+        link.state = LinkShown::connecting;
     }
-    return LinkShown::offline;
+    return link;
 }
 
 bool hosts_parse_address(const char* text, NetAddress* address)

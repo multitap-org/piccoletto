@@ -115,35 +115,46 @@ constexpr float    BAR_WIDTH  = 3.0f;
 constexpr float    BAR_GAP    = 1.0f;
 
 // The text after the bars.
-static void ping_text(LinkShown link, uint32_t ping_ms, char* out, size_t capacity)
+static void ping_text(const PadLink* link, char* out, size_t capacity)
 {
-    if (link == LinkShown::ready)
+    if (link->state == LinkShown::ready)
     {
-        std::snprintf(out, capacity, "%u MS", static_cast<unsigned>(ping_ms));
+        // The loss rounded; a little but not none says "<1%".
+        float percent = link->loss * 100.0f;
+        if (percent > 0.0f && percent < 1.0f)
+        {
+            std::snprintf(out, capacity, "%u MS <1%%", static_cast<unsigned>(link->ping_ms));
+        }
+        else
+        {
+            std::snprintf(out, capacity, "%u MS %u%%", static_cast<unsigned>(link->ping_ms),
+                          static_cast<unsigned>(percent + 0.5f));
+        }
     }
     else
     {
         // (CONNECTING would run into SELECT on a landscape pad.)
-        std::snprintf(out, capacity, "%s", link == LinkShown::connecting ? "…" : "OFFLINE");
+        std::snprintf(out, capacity, "%s", link->state == LinkShown::connecting ? "…" : "OFFLINE");
     }
 }
 
 constexpr float BARS_WIDTH = 3.0f * BAR_WIDTH + 2.0f * BAR_GAP + 5.0f;   // with the gap before the text
 
-float title_bar_ping_width(const TouchUi* ui, LinkShown link, uint32_t ping_ms)
+float title_bar_ping_width(const TouchUi* ui, const PadLink* link)
 {
-    char text[24];
-    ping_text(link, ping_ms, text, sizeof(text));
+    char text[32];
+    ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text_width(ui, text, TouchText::normal);
 }
 
-float title_bar_ping(const TouchUi* ui, float x, float y, LinkShown link, uint32_t ping_ms, uint32_t text_argb)
+float title_bar_ping(const TouchUi* ui, float x, float y, const PadLink* link, uint32_t text_argb)
 {
     const RetroUiPalette* palette = &ui->palette;
     int32_t lit = 0;
     uint32_t color = palette->panel_dark;
-    if (link == LinkShown::ready)
+    if (link->state == LinkShown::ready)
     {
+        uint32_t ping_ms = link->ping_ms;
         lit = ping_ms < PING_GOOD_MS ? 3 : (ping_ms < PING_FAIR_MS ? 2 : 1);
         color = ping_ms < PING_GOOD_MS ? PING_GOOD : (ping_ms < PING_FAIR_MS ? PING_FAIR : PING_BAD);
     }
@@ -155,15 +166,15 @@ float title_bar_ping(const TouchUi* ui, float x, float y, LinkShown link, uint32
         touch_ui_rect(ui, x + static_cast<float>(i) * (BAR_WIDTH + BAR_GAP), bottom - height, BAR_WIDTH, height,
                       i < lit ? color : palette->panel_dark);
     }
-    char text[24];
-    ping_text(link, ping_ms, text, sizeof(text));
+    char text[32];
+    ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text(ui, x + BARS_WIDTH, y, text, text_argb, TouchText::normal);
 }
 
-void title_bar_pad_status(const TouchUi* ui, int32_t port, LinkShown link, uint32_t ping_ms, uint32_t text_argb)
+void title_bar_pad_status(const TouchUi* ui, int32_t port, const PadLink* link, uint32_t text_argb)
 {
     float x = TITLE_BAR_MARGIN;
     float y = touch_ui_height(ui) - TITLE_BAR_MARGIN - touch_ui_text_height(ui, TouchText::normal);
     x += title_bar_port_leds(ui, x, y, port) + 6.0f;
-    title_bar_ping(ui, x, y, link, ping_ms, text_argb);
+    title_bar_ping(ui, x, y, link, text_argb);
 }

@@ -37,9 +37,10 @@ void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb);
 
 // The ping as three bars (Andrés): under 16 ms three green, under 48 ms two
 // yellow, else one red; all dim while connecting or offline. Then the ms
-// ("20 MS"), "…" while connecting or OFFLINE. Returns the width.
-float title_bar_ping(const TouchUi* ui, float x, float y, LinkShown link, uint32_t ping_ms, uint32_t text_argb);
-float title_bar_ping_width(const TouchUi* ui, LinkShown link, uint32_t ping_ms);
+// and the packet loss ("20 MS 0%"), "…" while connecting or OFFLINE.
+// Returns the width.
+float title_bar_ping(const TouchUi* ui, float x, float y, const PadLink* link, uint32_t text_argb);
+float title_bar_ping_width(const TouchUi* ui, const PadLink* link);
 
 // The pads' status in the screen's bottom left corner: the port LEDs and the ping.
-void title_bar_pad_status(const TouchUi* ui, int32_t port, LinkShown link, uint32_t ping_ms, uint32_t text_argb);
+void title_bar_pad_status(const TouchUi* ui, int32_t port, const PadLink* link, uint32_t text_argb);
