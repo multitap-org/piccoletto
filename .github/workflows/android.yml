@@ -5,6 +5,10 @@
 # Signed with a debug key made for each run: installing over a build signed
 # by another key needs an uninstall first.
 #
+# librashader (shaders) goes in too: android/build-librashader.sh with
+# rustup's aarch64-linux-android target and the NDK's clang, cached by the
+# submodule's commit (a cold build takes several minutes).
+#
 # The development machine (Linux arm64) uses the distro's clang with the
 # NDK's sysroot; on GitHub's x86_64 runners the NDK's own clang does the same
 # job (MULTITAP_LLVM_ROOT). The SDK's build tools (aapt2, d8, zipalign,
@@ -13,7 +17,7 @@ name: Android
 
 on:
   push:
-    branches: [main, piccoletto]
+    branches: [main]
     tags: ['*']
   pull_request:
   workflow_dispatch:
@@ -52,6 +56,25 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-${ANDROID_API}" "build-tools;${BUILD_TOOLS}" > /dev/null
           sudo apt-get update -q
           sudo apt-get install -y -q ninja-build
+
+      - name: librashader's commit
+        id: librashader
+        run: echo "commit=$(git rev-parse HEAD:deps/librashader)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache librashader
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            android/build/librashader/target
+          key: librashader-android-${{ steps.librashader.outputs.commit }}-${{ env.NDK_VERSION }}
+
+      - name: Build librashader
+        run: |
+          rustup target add aarch64-linux-android
+          ndk="$HOME/android-ndk-${NDK_VERSION}"
+          ANDROID_NDK_ROOT="$ndk" MULTITAP_LLVM_ROOT="$ndk/toolchains/llvm/prebuilt/linux-x86_64" \
+            CARGO="$(command -v cargo)" android/build-librashader.sh
 
       - name: Build the APK
         run: |
