@@ -106,7 +106,7 @@ static const char* selected_host(const App* app)
 static bool selected_full_access(const App* app)
 {
     const KnownHost* host = selected_known(app);
-    return host != nullptr && host->access == NetAccessLevel::full;
+    return host != nullptr && net_access_allows(host->access, NetAccessLevel::full);   // (or above)
 }
 
 // HOME's view of the paired hosts: the modes each access level opens.

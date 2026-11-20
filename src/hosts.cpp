@@ -543,7 +543,7 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
 static void send_devices_request(Hosts* hosts)
 {
     if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0 ||
-        hosts->known[static_cast<size_t>(hosts->linked)].access != NetAccessLevel::full)
+        !net_access_allows(hosts->known[static_cast<size_t>(hosts->linked)].access, NetAccessLevel::full))
     {
         return;
     }
@@ -655,7 +655,7 @@ static void update_locked(Hosts* hosts, double now)
                 host->access = event.access;
                 write_info(hosts, host);
                 // Raised to FULL with DEVICES wanted: ask now; lowered: the list goes.
-                if (event.access == NetAccessLevel::full)
+                if (net_access_allows(event.access, NetAccessLevel::full))
                 {
                     send_devices_request(hosts);
                 }
