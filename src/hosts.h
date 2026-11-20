@@ -3,7 +3,10 @@
 // The hosts (piccolos) this phone knows and the network to them, on
 // frontends-common's frontend_net: this device's identity, the hosts it
 // paired with, LAN discovery, pairing with the 6-digit code and connecting.
-// Polled from the app's loop (hosts_update), never blocks.
+// The connection runs on its own thread (net_client_service.h: polled every
+// millisecond; remote play's stream decoded there, its audio played there);
+// the app's loop drains what it reported (hosts_update), never blocks. Every
+// hosts_* function takes the thread's lock while it uses the connection.
 //
 // Files, in piccoletto's settings folder (inside the app's own folder on
 // Android, not shared storage):
@@ -30,7 +33,8 @@
 #include <string>
 #include <vector>
 
-#include "net_client.h"
+#include "net_client_service.h"
+#include "net_content.h"
 #include "net_host.h"
 #include "net_input.h"
 #include "net_speed.h"
@@ -93,7 +97,7 @@ enum class LinkStatus
 struct Hosts
 {
     bool                   ok = false;          // networking runs (false: no identity, no socket)
-    NetClient              client;
+    NetClientService       net;                 // the connection, on its thread (net.client under its lock)
     NetHost                discovery;           // our own client host for discovery replies
     std::vector<KnownHost> known;               // the same order as client.trust.devices
     FoundHost              found[HOSTS_MAX_FOUND];
@@ -119,6 +123,9 @@ struct Hosts
     uint32_t               next_request = 1;    // ids for requests to the host
     bool                   measure_wanted = false;  // run the speed test when this connection is ready (HOME's refresh)
     bool                   measure_only = false;    // connected only for that: leave once it's done
+    bool                   game_known = false;  // the host has said whether a game runs (game_state)
+    NetGameState           game;
+    uint8_t                stream_flags = 0;    // remote play wanted (NET_STREAM_WANT_*): asked for once ready
     NetClientRefusal       refusal = NetClientRefusal::none;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
 };
@@ -168,6 +175,22 @@ bool hosts_measuring(const Hosts* hosts, int32_t index);
 // connects, tells the host (which forgets this phone too) and forgets it
 // here; else only here. The list changes when it's done.
 void hosts_forget(Hosts* hosts, int32_t index);
+
+// Remote play: ask the connected host for its stream (video and audio) from
+// now on, also after reconnecting; or stop it. The picture comes from
+// hosts_take_frame, the audio plays by itself.
+void hosts_stream_start(Hosts* hosts);
+void hosts_stream_stop(Hosts* hosts);
+// The newest picture, if one came since the last call (net_client_service_take_frame).
+bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* width, uint32_t* height,
+                      FramePixelFormat* format, uint32_t* frame, NetStreamInfo* info);
+// The stream's counts (frames, losses, bytes, audio).
+void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats);
+// Whether a game runs on the connected host: 1 yes, 0 no, -1 not known yet.
+int32_t hosts_game_running(const Hosts* hosts);
+
+// PAIR's progress line: still connecting (true) or checking the code.
+bool hosts_pair_connecting(Hosts* hosts);
 
 // The pads' status: offline, connecting, or ready with the last ping and loss.
 PadLink hosts_pad_link(const Hosts* hosts);

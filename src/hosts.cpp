@@ -100,9 +100,9 @@ static void write_info(Hosts* hosts, const KnownHost* host)
 static void rebuild_known(Hosts* hosts)
 {
     hosts->known.clear();
-    for (size_t i = 0; i < hosts->client.trust.devices.size(); i++)
+    for (size_t i = 0; i < hosts->net.client.trust.devices.size(); i++)
     {
-        const NetTrustedDevice* device = &hosts->client.trust.devices[i];
+        const NetTrustedDevice* device = &hosts->net.client.trust.devices[i];
         KnownHost host;
         std::memcpy(host.key, device->key, NET_KEY_SIZE);
         host.name = device->name;
@@ -135,21 +135,23 @@ bool hosts_create(Hosts* hosts, const char* settings_dir, const char* phone_name
         return false;
     }
     std::string trust_path = dir + "/net_hosts.cfg";
-    bool created = net_client_create(&hosts->client, &identity, phone_name, trust_path.c_str()) &&
+    bool created = net_client_service_start(&hosts->net, &identity, phone_name, trust_path.c_str()) &&
                    net_host_create_client(&hosts->discovery);
     net_keypair_wipe(&identity);
     if (!created)
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Network: no socket; pairing and playing are off");
-        net_client_destroy(&hosts->client);
+        net_client_service_stop(&hosts->net);
         net_host_destroy(&hosts->discovery);
         net_shutdown();
         return false;
     }
+    net_client_service_lock(&hosts->net);
     rebuild_known(hosts);
+    net_client_service_unlock(&hosts->net);
     hosts->ok = true;
     char fingerprint[64];
-    net_key_fingerprint(hosts->client.our_key, fingerprint, sizeof(fingerprint));
+    net_key_fingerprint(hosts->net.client.our_key, fingerprint, sizeof(fingerprint));
     SDL_Log("Network: this phone is %s, %zu paired host(s)", fingerprint, hosts->known.size());
     return true;
 }
@@ -160,8 +162,10 @@ void hosts_destroy(Hosts* hosts)
     {
         return;
     }
-    net_client_close(&hosts->client);
-    net_client_destroy(&hosts->client);
+    net_client_service_lock(&hosts->net);
+    net_client_close(&hosts->net.client);
+    net_client_service_unlock(&hosts->net);
+    net_client_service_stop(&hosts->net);
     net_host_destroy(&hosts->discovery);
     net_shutdown();
     hosts->ok = false;
@@ -172,7 +176,9 @@ void hosts_set_name(Hosts* hosts, const char* phone_name)
     // As net_client_create keeps it: cut the way the messages carry it.
     uint8_t bytes[NET_DEVICE_NAME_MAX];
     size_t size = net_pair_name_bytes(phone_name, bytes);
-    hosts->client.name.assign(reinterpret_cast<const char*>(bytes), size);
+    net_client_service_lock(&hosts->net);
+    hosts->net.client.name.assign(reinterpret_cast<const char*>(bytes), size);
+    net_client_service_unlock(&hosts->net);
 }
 
 // A discovery reply: the host's listening address is the sender's IP with
@@ -281,7 +287,7 @@ static void on_ready(Hosts* hosts, const NetClientEvent* event, NetAddress addre
         hosts->pair = PairStatus::paired;
         hosts->paired_index = event->device;
         // Paired: the modes connect again when they're opened.
-        net_client_close(&hosts->client);
+        net_client_close(&hosts->net.client);
         return;
     }
     hosts->link = LinkStatus::ready;
@@ -306,7 +312,7 @@ static void forget_here(Hosts* hosts, int32_t index)
 {
     uint8_t key[NET_KEY_SIZE];
     std::memcpy(key, hosts->known[static_cast<size_t>(index)].key, NET_KEY_SIZE);
-    net_client_unpair(&hosts->client, static_cast<uint32_t>(index));   // not connected: only our list
+    net_client_unpair(&hosts->net.client, static_cast<uint32_t>(index));   // not connected: only our list
     forget_info(hosts, key);
     rebuild_known(hosts);
 }
@@ -354,7 +360,7 @@ static void speed_next(Hosts* hosts)
     uint32_t rate = SPEED_RATES_KBPS[speed->step];
     uint8_t out[32];
     size_t size = net_speed_write_request(out, sizeof(out), id, speed->direction, rate, SPEED_TEST_MS);
-    if (!net_client_send(&hosts->client, NetChannel::control, out, size))
+    if (!net_client_send(&hosts->net.client, NetChannel::control, out, size))
     {
         speed_finish(hosts);
         return;
@@ -453,7 +459,7 @@ static void speed_update(Hosts* hosts)
         for (uint32_t i = 0; i < due; i++)
         {
             size_t size = net_speed_write_data(packet, sizeof(packet), speed->sender.id, speed->sender.sent);
-            net_client_send(&hosts->client, NetChannel::input, packet, size);
+            net_client_send(&hosts->net.client, NetChannel::input, packet, size);
             net_speed_sender_sent(&speed->sender, size);
         }
     }
@@ -478,6 +484,15 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         speed_report(hosts, &report);
         return;
     }
+    // Whether a game runs (sent when connected and when it changes).
+    if (event->size > 0 && event->data[0] == NET_GAME_STATE_MESSAGE)
+    {
+        if (net_content_read_game_state(event->data, event->size, &hosts->game))
+        {
+            hosts->game_known = true;
+        }
+        return;
+    }
     // Where our pads play (asked when connected, pushed when it changes).
     if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::controllers))
     {
@@ -495,15 +510,11 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
     }
 }
 
-void hosts_update(Hosts* hosts, double now)
+static void update_locked(Hosts* hosts, double now)
 {
-    if (!hosts->ok)
-    {
-        return;
-    }
     discover(hosts, now);
     NetClientEvent event;
-    while (net_client_poll(&hosts->client, &event))
+    while (net_client_service_next(&hosts->net, &event))
     {
         switch (event.type)
         {
@@ -522,7 +533,7 @@ void hosts_update(Hosts* hosts, double now)
                 {
                     uint8_t key[NET_KEY_SIZE];
                     std::memcpy(key, hosts->known[static_cast<size_t>(index)].key, NET_KEY_SIZE);
-                    net_client_unpair(&hosts->client, static_cast<uint32_t>(index));
+                    net_client_unpair(&hosts->net.client, static_cast<uint32_t>(index));
                     forget_info(hosts, key);
                     rebuild_known(hosts);
                     SDL_Log("Network: unpaired on both sides");
@@ -536,9 +547,14 @@ void hosts_update(Hosts* hosts, double now)
                 hosts->pad_sender = NetRetroPadSender{};
                 hosts->pad_port = -1;
                 hosts->controllers_known = false;
+                hosts->game_known = false;
+                if (hosts->stream_flags != 0)
+                {
+                    net_client_service_set_stream(&hosts->net, hosts->stream_flags);
+                }
                 uint8_t request[16];
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
-                net_client_send(&hosts->client, NetChannel::control, request, size);
+                net_client_send(&hosts->net.client, NetChannel::control, request, size);
                 const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
                 if (event.access != NetAccessLevel::gamepad && (!host->measured || hosts->measure_wanted))
                 {
@@ -613,6 +629,7 @@ void hosts_update(Hosts* hosts, double now)
             break;
         case NetClientEventType::closed:
             hosts->speed.running = false;
+            hosts->game_known = false;
             if (hosts->link == LinkStatus::ready)
             {
                 hosts->link = LinkStatus::failed;
@@ -621,10 +638,10 @@ void hosts_update(Hosts* hosts, double now)
             break;
         }
     }
-    if (hosts->connect_pending && hosts->client.state == NetClientState::idle)
+    if (hosts->connect_pending && hosts->net.client.state == NetClientState::idle)
     {
         hosts->connect_pending = false;
-        if (!net_client_connect(&hosts->client, hosts->connecting_to, nullptr))
+        if (!net_client_connect(&hosts->net.client, hosts->connecting_to, nullptr))
         {
             hosts->link = LinkStatus::failed;
             hosts->refusal = NetClientRefusal::connection;
@@ -637,9 +654,20 @@ void hosts_update(Hosts* hosts, double now)
     else if (now >= hosts->next_stats)
     {
         hosts->next_stats = now + STATS_SECONDS;
-        hosts->has_stats = net_client_stats(&hosts->client, &hosts->stats);
+        hosts->has_stats = net_client_stats(&hosts->net.client, &hosts->stats);
     }
     speed_update(hosts);
+}
+
+void hosts_update(Hosts* hosts, double now)
+{
+    if (!hosts->ok)
+    {
+        return;
+    }
+    net_client_service_lock(&hosts->net);
+    update_locked(hosts, now);
+    net_client_service_unlock(&hosts->net);
 }
 
 int32_t hosts_unpaired_count(const Hosts* hosts)
@@ -669,13 +697,13 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index)
     return nullptr;
 }
 
-bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
+static bool pair_locked(Hosts* hosts, NetAddress address, const char* code)
 {
-    if (!hosts->ok || hosts->client.state != NetClientState::idle)
+    if (!hosts->ok || hosts->net.client.state != NetClientState::idle)
     {
         return false;
     }
-    if (!net_client_connect(&hosts->client, address, code))
+    if (!net_client_connect(&hosts->net.client, address, code))
     {
         return false;
     }
@@ -687,7 +715,7 @@ bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
     return true;
 }
 
-bool hosts_connect(Hosts* hosts, int32_t index)
+static bool connect_locked(Hosts* hosts, int32_t index)
 {
     hosts->measure_only = false;   // a mode wants the connection: it stays
     if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
@@ -716,8 +744,8 @@ bool hosts_connect(Hosts* hosts, int32_t index)
     hosts->connecting_to = address;
     // The last connection may still be closing (HOME, then a mode right
     // away): then hosts_update connects once it's gone.
-    hosts->connect_pending = hosts->client.state != NetClientState::idle;
-    if (!hosts->connect_pending && !net_client_connect(&hosts->client, address, nullptr))
+    hosts->connect_pending = hosts->net.client.state != NetClientState::idle;
+    if (!hosts->connect_pending && !net_client_connect(&hosts->net.client, address, nullptr))
     {
         hosts->link = LinkStatus::failed;
         hosts->refusal = NetClientRefusal::connection;
@@ -730,7 +758,10 @@ void hosts_disconnect(Hosts* hosts)
 {
     if (hosts->ok && hosts->pending_unpair < 0)
     {
-        net_client_close(&hosts->client);
+        net_client_service_lock(&hosts->net);
+        net_client_service_set_stream(&hosts->net, 0);   // stream_stop first; the picture and audio go
+        net_client_close(&hosts->net.client);
+        net_client_service_unlock(&hosts->net);
     }
     hosts->speed.running = false;
     hosts->has_stats = false;
@@ -747,7 +778,7 @@ void hosts_cancel(Hosts* hosts)
     hosts->pair = PairStatus::idle;
 }
 
-void hosts_forget(Hosts* hosts, int32_t index)
+static void forget_locked(Hosts* hosts, int32_t index)
 {
     if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
     {
@@ -758,7 +789,7 @@ void hosts_forget(Hosts* hosts, int32_t index)
     {
         uint8_t key[NET_KEY_SIZE];
         std::memcpy(key, hosts->known[static_cast<size_t>(index)].key, NET_KEY_SIZE);
-        net_client_unpair(&hosts->client, static_cast<uint32_t>(index));
+        net_client_unpair(&hosts->net.client, static_cast<uint32_t>(index));
         hosts->link = LinkStatus::idle;
         hosts->linked = -1;
         forget_info(hosts, key);
@@ -767,8 +798,8 @@ void hosts_forget(Hosts* hosts, int32_t index)
     }
     // Reachable: connect to tell it (hosts_update finishes it); else only here.
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
-    if (host->online && host->address.port != 0 && hosts->client.state == NetClientState::idle &&
-        net_client_connect(&hosts->client, host->address, nullptr))
+    if (host->online && host->address.port != 0 && hosts->net.client.state == NetClientState::idle &&
+        net_client_connect(&hosts->net.client, host->address, nullptr))
     {
         hosts->pending_unpair = index;
         hosts->connecting_to = host->address;
@@ -777,7 +808,7 @@ void hosts_forget(Hosts* hosts, int32_t index)
     forget_here(hosts, index);
 }
 
-bool hosts_measure(Hosts* hosts, int32_t index)
+static bool measure_locked(Hosts* hosts, int32_t index)
 {
     if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
     {
@@ -801,7 +832,7 @@ bool hosts_measure(Hosts* hosts, int32_t index)
     {
         return false;
     }
-    if (!hosts_connect(hosts, index))
+    if (!connect_locked(hosts, index))
     {
         return false;
     }
@@ -819,7 +850,7 @@ bool hosts_measuring(const Hosts* hosts, int32_t index)
     return hosts->speed.running || (hosts->link == LinkStatus::connecting && hosts->measure_wanted);
 }
 
-void hosts_send_pad(Hosts* hosts, const RetroPad* pad)
+static void send_pad_locked(Hosts* hosts, const RetroPad* pad)
 {
     if (!hosts->ok || hosts->link != LinkStatus::ready)
     {
@@ -836,8 +867,110 @@ void hosts_send_pad(Hosts* hosts, const RetroPad* pad)
     size_t size = net_input_push_retropad(&hosts->pad_sender, 0, &state, packet, sizeof(packet));
     if (size > 0)
     {
-        net_client_send(&hosts->client, NetChannel::input, packet, size);
+        net_client_send(&hosts->net.client, NetChannel::input, packet, size);
     }
+}
+
+// The public ones: the connection's lock around the work.
+
+bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
+{
+    net_client_service_lock(&hosts->net);
+    bool started = pair_locked(hosts, address, code);
+    net_client_service_unlock(&hosts->net);
+    return started;
+}
+
+bool hosts_connect(Hosts* hosts, int32_t index)
+{
+    net_client_service_lock(&hosts->net);
+    bool started = connect_locked(hosts, index);
+    net_client_service_unlock(&hosts->net);
+    return started;
+}
+
+void hosts_forget(Hosts* hosts, int32_t index)
+{
+    net_client_service_lock(&hosts->net);
+    forget_locked(hosts, index);
+    net_client_service_unlock(&hosts->net);
+}
+
+bool hosts_measure(Hosts* hosts, int32_t index)
+{
+    net_client_service_lock(&hosts->net);
+    bool started = measure_locked(hosts, index);
+    net_client_service_unlock(&hosts->net);
+    return started;
+}
+
+void hosts_send_pad(Hosts* hosts, const RetroPad* pad)
+{
+    net_client_service_lock(&hosts->net);
+    send_pad_locked(hosts, pad);
+    net_client_service_unlock(&hosts->net);
+}
+
+bool hosts_pair_connecting(Hosts* hosts)
+{
+    net_client_service_lock(&hosts->net);
+    NetClientState state = hosts->net.client.state;
+    net_client_service_unlock(&hosts->net);
+    return state == NetClientState::connecting || state == NetClientState::waiting;
+}
+
+// --- remote play -------------------------------------------------------------------
+
+void hosts_stream_start(Hosts* hosts)
+{
+    hosts->stream_flags = NET_STREAM_WANT_VIDEO | NET_STREAM_WANT_AUDIO;
+    if (hosts->ok && hosts->link == LinkStatus::ready)
+    {
+        net_client_service_lock(&hosts->net);
+        net_client_service_set_stream(&hosts->net, hosts->stream_flags);
+        net_client_service_unlock(&hosts->net);
+    }
+}
+
+void hosts_stream_stop(Hosts* hosts)
+{
+    if (hosts->stream_flags == 0)
+    {
+        return;
+    }
+    hosts->stream_flags = 0;
+    if (hosts->ok)
+    {
+        net_client_service_lock(&hosts->net);
+        net_client_service_set_stream(&hosts->net, 0);
+        net_client_service_unlock(&hosts->net);
+    }
+}
+
+bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* width, uint32_t* height,
+                      FramePixelFormat* format, uint32_t* frame, NetStreamInfo* info)
+{
+    return hosts->ok && net_client_service_take_frame(&hosts->net, pixels, width, height, format, frame, info);
+}
+
+void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats)
+{
+    *stats = NetClientStreamStats{};
+    if (hosts->ok)
+    {
+        net_client_service_lock(&hosts->net);
+        net_client_service_stream_stats(&hosts->net, stats);
+        net_client_service_unlock(&hosts->net);
+    }
+}
+
+int32_t hosts_game_running(const Hosts* hosts)
+{
+    if (hosts->link != LinkStatus::ready || !hosts->game_known)
+    {
+        return -1;
+    }
+    return hosts->game.running ? 1 : 0;
 }
 
 int32_t hosts_pad_port(const Hosts* hosts)

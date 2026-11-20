@@ -487,8 +487,7 @@ static NavAction draw_pair(App* app)
     else if (hosts->pair == PairStatus::busy)
     {
         progress.busy = true;
-        NetClientState state = hosts->client.state;
-        progress.text = state == NetClientState::connecting || state == NetClientState::waiting ? "CONNECTING…" : "CHECKING THE CODE…";
+        progress.text = hosts_pair_connecting(hosts) ? "CONNECTING…" : "CHECKING THE CODE…";
     }
     else if (hosts->pair == PairStatus::failed)
     {

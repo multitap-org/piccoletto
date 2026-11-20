@@ -143,7 +143,7 @@ The screen follows the phone (SDL's "full user", so the system rotation lock
 is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
 tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
-20 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
+24 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no
 ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 
