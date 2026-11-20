@@ -7,7 +7,6 @@
 #include "imgui.h"
 
 #include "app_shell.h"
-#include "debug_ui.h"
 #include "hosts.h"
 #include "touch_ui.h"
 #include "viewport.h"
@@ -16,51 +15,28 @@
 constexpr uint32_t START_CAPACITY_WIDTH = 512;
 constexpr uint32_t START_CAPACITY_HEIGHT = 512;
 
-static VkFormat vulkan_format(FramePixelFormat format)
-{
-    switch (format)
-    {
-    case FramePixelFormat::rgb565:   return VK_FORMAT_R5G6B5_UNORM_PACK16;
-    case FramePixelFormat::xrgb1555: return VK_FORMAT_A1R5G5B5_UNORM_PACK16;
-    case FramePixelFormat::xrgb8888: return VK_FORMAT_B8G8R8A8_UNORM;
-    }
-    return VK_FORMAT_B8G8R8A8_UNORM;
-}
-
 static void free_texture(StreamView* view, AppShell* shell)
 {
-    if (view->texture.image == VK_NULL_HANDLE && view->picture.image == VK_NULL_HANDLE)
-    {
-        return;
-    }
-    // The GPU may still be drawing the old one (frames in flight).
-    vkDeviceWaitIdle(shell->vulkan.device);
-    picture_destroy(&view->picture, &shell->vulkan);
-    view->picture = Picture{};
-    if (view->texture_id != 0)
-    {
-        debug_ui_remove_texture(view->texture_id);
-        view->texture_id = 0;
-    }
-    streaming_texture_destroy(&view->texture, &shell->vulkan);
-    view->texture = StreamingTexture{};
+    // Both wait for the GPU: it may still be drawing them (frames in flight).
+    video_output_destroy(&view->output, view->library, shell);
+    video_texture_destroy(&view->texture, shell);
 }
 
 // A texture for this frame's format and size (a new one only when they change).
 static bool ensure_texture(StreamView* view, AppShell* shell)
 {
-    bool fits = view->texture.image != VK_NULL_HANDLE && view->texture_format == view->format &&
+    bool fits = video_texture_created(&view->texture) && view->texture.format == view->format &&
                 view->width <= view->texture.capacity_width && view->height <= view->texture.capacity_height;
     if (fits)
     {
         return true;
     }
-    free_texture(view, shell);
+    // The texture goes; the shader chain stays (only its images follow the size).
+    video_texture_destroy(&view->texture, shell);
     uint32_t width = view->width > START_CAPACITY_WIDTH ? view->width : START_CAPACITY_WIDTH;
     uint32_t height = view->height > START_CAPACITY_HEIGHT ? view->height : START_CAPACITY_HEIGHT;
-    VkFormat format = vulkan_format(view->format);
-    if (!streaming_texture_format_supported(&shell->vulkan, format) ||
-        !streaming_texture_create_format(&view->texture, &shell->vulkan, width, height, format, true))
+    if (!video_texture_format_supported(shell, view->format) ||
+        !video_texture_create(&view->texture, shell, width, height, view->format, true))
     {
         if (!view->failed)
         {
@@ -68,12 +44,8 @@ static bool ensure_texture(StreamView* view, AppShell* shell)
                          static_cast<int>(view->format), width, height);
         }
         view->failed = true;
-        streaming_texture_destroy(&view->texture, &shell->vulkan);
-        view->texture = StreamingTexture{};
         return false;
     }
-    view->texture_format = view->format;
-    view->texture_id = debug_ui_add_texture(view->texture.view);
     view->failed = false;
     return true;
 }
@@ -88,9 +60,7 @@ void stream_view_update(StreamView* view, Hosts* hosts, AppShell* shell)
     {
         return;   // the next frame tries again
     }
-    // Outside the rendering pass: the copy goes first in this frame's commands.
-    if (streaming_texture_upload(&view->texture, renderer_command_buffer(&shell->renderer),
-                                 renderer_frame_index(&shell->renderer), view->pixels.data(), view->width, view->height))
+    if (video_texture_upload(&view->texture, shell, view->pixels.data(), view->width, view->height))
     {
         view->has_picture = true;
     }
@@ -103,28 +73,26 @@ void stream_view_set_shader(StreamView* view, const ShaderLibrary* library, AppS
     {
         return;
     }
-    ShaderStage* stage = &view->chain.stages[1];
     if (preset_path[0] == '\0')
     {
-        if (stage->chain != nullptr)
-        {
-            shader_chain_clear(&view->chain, library, &shell->vulkan, 1);
-        }
-        stage->failed_path.clear();
+        // Also forgets a preset that failed, so choosing it again retries it.
+        // An empty stage costs nothing to clear (no GPU wait).
+        video_output_load_stage(&view->output, library, shell, 1, "");
         return;
     }
-    if (stage->preset_path == preset_path || stage->failed_path == preset_path)
+    if (video_output_stage_preset(&view->output, 1) == preset_path ||
+        video_output_stage_failed_preset(&view->output, 1) == preset_path)
     {
         return;   // loaded, or it failed already (logged): not every frame
     }
-    shader_chain_load(&view->chain, library, &shell->vulkan, 1, preset_path);
+    video_output_load_stage(&view->output, library, shell, 1, preset_path);
 }
 
 bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, float x, float y, float width, float height)
 {
-    view->picture.ready = false;
-    view->use_chain = false;
-    if (!view->has_picture || view->texture_id == 0 || !view->texture.has_content)
+    video_output_skip(&view->output);
+    view->drawn = false;
+    if (!view->has_picture || view->texture.imgui_id == 0 || !view->texture.has_content)
     {
         return false;
     }
@@ -144,43 +112,31 @@ bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, floa
     {
         return false;
     }
-    const ImGuiViewport* screen = ImGui::GetMainViewport();
     // A shader preset when there's one and it can run; else the picture as is.
-    if (view->library != nullptr && view->library->loaded && shader_chain_active(&view->chain) &&
-        shader_chain_prepare(&view->chain, &shell->vulkan, &view->texture, &viewport))
-    {
-        view->use_chain = true;
-        shader_chain_draw(&view->chain, ImGui::GetWindowDrawList(), screen->Pos.x + x * scale, screen->Pos.y + y * scale);
-        return true;
-    }
-    if (!picture_prepare(&view->picture, &shell->vulkan, &view->texture, &viewport))
+    if (!video_output_prepare(&view->output, shell, &view->texture, &viewport))
     {
         return false;
     }
-    picture_draw(&view->picture, ImGui::GetWindowDrawList(), &view->texture, view->texture_id,
-                 screen->Pos.x + x * scale, screen->Pos.y + y * scale);
+    const ImGuiViewport* screen = ImGui::GetMainViewport();
+    video_output_draw(&view->output, ImGui::GetWindowDrawList(), &view->texture, screen->Pos.x + x * scale,
+                      screen->Pos.y + y * scale);
+    view->drawn = true;
     return true;
 }
 
 void stream_view_record(StreamView* view, AppShell* shell)
 {
-    if (view->use_chain && view->chain.ready && app_shell_acquire(shell))
+    if (view->drawn && app_shell_acquire(shell))
     {
-        shader_chain_record(&view->chain, view->library, renderer_command_buffer(&shell->renderer), &view->texture);
-        return;
-    }
-    if (view->picture.ready && app_shell_acquire(shell))
-    {
-        picture_record(&view->picture, renderer_command_buffer(&shell->renderer), &view->texture);
+        video_output_record(&view->output, view->library, shell, &view->texture);
     }
 }
 
 void stream_view_clear(StreamView* view)
 {
     view->has_picture = false;
-    view->picture.ready = false;
-    view->use_chain = false;
-    view->chain.ready = false;
+    video_output_skip(&view->output);
+    view->drawn = false;
     view->info = NetStreamInfo{};
     view->width = 0;
     view->height = 0;
@@ -188,10 +144,6 @@ void stream_view_clear(StreamView* view)
 
 void stream_view_destroy(StreamView* view, AppShell* shell)
 {
-    if (view->library != nullptr && view->library->loaded)
-    {
-        shader_chain_destroy(&view->chain, view->library, &shell->vulkan);
-    }
     free_texture(view, shell);
     stream_view_clear(view);
 }

@@ -3,10 +3,10 @@
 // REMOTE PLAY's picture: the newest frame the host streamed (hosts_take_frame,
 // decoded on the network thread), uploaded to a texture in the core's own
 // format (R5G6B5, A1R5G5B5 or B8G8R8A8: the CPU only copies, the texture unit
-// expands it) and drawn with frontends-common's Picture (sharp bilinear:
-// crisp pixels without uneven sizes at a scale that isn't whole), or through
-// a shader preset (shader_chain: librashader, when it loaded) when one is
-// chosen (SETTINGS > REMOTE PLAY SHADER).
+// expands it) and drawn with frontends-common's VideoOutput: plain with sharp
+// bilinear (crisp pixels without uneven sizes at a scale that isn't whole),
+// or through a shader preset (librashader, when it loaded) when one is chosen
+// (SETTINGS > REMOTE PLAY SHADER).
 //
 // No queue: each frame of the app shows whatever came last, so the picture
 // is never later than it has to be (a frame repeats or is skipped now and
@@ -21,9 +21,9 @@
 #include <vector>
 
 #include "net_stream.h"
-#include "picture.h"
-#include "shader_chain.h"
-#include "vk_texture.h"
+#include "shader_chain.h"   // ShaderLibrary
+#include "video_output.h"
+#include "video_texture.h"
 
 struct AppShell;
 struct Hosts;
@@ -31,10 +31,7 @@ struct TouchUi;
 
 struct StreamView
 {
-    StreamingTexture     texture;
-    uint64_t             texture_id = 0;     // ImGui's id for the texture
-    FramePixelFormat     texture_format = FramePixelFormat::rgb565;
-    Picture              picture;
+    VideoTexture         texture;            // in the stream's format (texture.format)
     std::vector<uint8_t> pixels;             // the newest frame (reused)
     uint32_t             width = 0;
     uint32_t             height = 0;
@@ -43,10 +40,11 @@ struct StreamView
     NetStreamInfo        info;               // what it goes with
     bool                 has_picture = false;   // something was uploaded and can be drawn
     bool                 failed = false;     // the texture couldn't be made (logged once)
-    // The shader preset (stage 1 of the chain; stage 0, piccolo's pass 0, isn't used).
-    ShaderChain          chain;
+    // On screen: the shader preset in stage 1 (stage 0, piccolo's pass 0,
+    // isn't used), or plain with sharp bilinear.
+    VideoOutput          output;
     const ShaderLibrary* library = nullptr;  // nullptr / not loaded: no shaders
-    bool                 use_chain = false;  // this frame draws the chain's output
+    bool                 drawn = false;      // this frame drew the picture (record it)
 };
 
 // The preset to run (a .slangp path; "" = none). Loads it (waits for the GPU)
@@ -60,7 +58,7 @@ void stream_view_update(StreamView* view, Hosts* hosts, AppShell* shell);
 // caller fitted it to the stream's aspect). False when there's nothing to draw yet.
 bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, float x, float y, float width, float height);
 
-// Records the sharp-bilinear copy (after the upload, before presenting).
+// Records the picture's GPU work (after the upload, before presenting).
 void stream_view_record(StreamView* view, AppShell* shell);
 
 // Forgets the picture (leaving REMOTE PLAY): the next stream starts black.
