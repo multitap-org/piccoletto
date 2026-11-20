@@ -8,7 +8,7 @@
 #   adb logcat -s piccoletto SDL
 #
 # Steps: native library (CMake, with hosts-common's Android toolchain), Java
-# (javac), dex (d8), manifest (aapt2), then the native library and dex go into
+# (javac), dex (d8), manifest and resources (aapt2: icon, TV banner), then the native library and dex go into
 # the APK, which is aligned (zipalign) and signed with the debug key (apksigner).
 #
 # Tools, overridable from the environment:
@@ -66,7 +66,10 @@ find "$apk_dir/classes" -name '*.class' > "$apk_dir/classes.txt"
     --lib "$ANDROID_JAR" --output "$apk_dir/dex" @"$apk_dir/classes.txt"
 
 echo "== package"
-aapt2 link --manifest "$here/AndroidManifest.xml" -I "$AAPT_ANDROID_JAR" -o "$apk_dir/unaligned.apk"
+# Resources: the launcher icon and the TV banner (android/res, exported from assets/branding).
+aapt2 compile --dir "$here/res" -o "$apk_dir/res.zip"
+aapt2 link --manifest "$here/AndroidManifest.xml" -I "$AAPT_ANDROID_JAR" -R "$apk_dir/res.zip" --auto-add-overlay \
+    -o "$apk_dir/unaligned.apk"
 cp "$native/libmain.so" "$apk_dir/lib/arm64-v8a/libmain.so"
 # Paths inside the APK are relative to the folder zip runs in.
 (cd "$apk_dir/dex" && zip -q "$apk_dir/unaligned.apk" classes.dex)

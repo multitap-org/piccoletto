@@ -13,7 +13,13 @@ colors, same type, same hard shadow (see piccolo's `assets/branding/README.md`).
 - `piccoletto-logo-dark.svg`, `piccoletto-logo-light.svg`: icon + wordmark,
   transparent background, for dark and light pages. The icon here has no
   background tile (the two tiles stand on the page).
+- `piccoletto-banner-tv-dark.svg`: Android TV banner, piccolo's banner frame with
+  the dark logo centered; drawn at 640x360, exported at 320x180 (xhdpi).
 - `png/`: the PNG exports of all of the above.
+
+Where they're used: `android/res` (the launcher icon in five densities and the
+TV banner, exported from these), the Flatpak (`flatpak/`: the scalable icon and
+the PNGs as hicolor icons).
 
 The logo SVGs have their text converted to paths, so they don't need the font
 installed.
@@ -55,4 +61,13 @@ PNGs:
 48-512 from `piccoletto-icon.svg`, 24-32 from `piccoletto-icon-small.svg`, 16
 from `piccoletto-icon-16.svg`.
 
-Not made yet: Android adaptive icon (foreground/background layers) and a TV banner.
+Android, after changing the icon or the banner:
+
+    for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+        inkscape piccoletto-icon.svg -w ${d#*:} -h ${d#*:} -o ../../android/res/mipmap-${d%:*}/ic_launcher.png
+    done
+    inkscape piccoletto-banner-tv-dark.svg -w 320 -h 180 -o png/piccoletto-banner-tv-dark.png
+    cp png/piccoletto-banner-tv-dark.png ../../android/res/drawable-xhdpi/banner.png
+
+Not made yet: an Android adaptive icon (foreground / background layers); the
+legacy square icon is used.

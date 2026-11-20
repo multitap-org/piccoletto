@@ -105,7 +105,7 @@ src/remote_play_screen.* REMOTE PLAY: the picture as big as the stream's aspect 
                         portrait if it fits, else an overlay over the picture (landscape, DS)
 src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (placeholder devices)
 src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
-android/           the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
+android/           the APK without Gradle: build-apk.sh, res/ (launcher icon, TV banner from assets/branding) (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
                    AndroidManifest.xml (org.multitap.piccoletto, minSdk 28, targetSdk 35)
 flatpak/           org.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
