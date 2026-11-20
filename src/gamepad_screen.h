@@ -13,9 +13,9 @@
 #include "screens.h"
 #include "touch_ui.h"
 
-// `host`: its name; `port`: 1-based, as shown. While editor->active the
+// `port`: 1-based, as shown (the host is named in the quick menu). While editor->active the
 // current layout is edited instead of played (NavAction::edit_done at DONE).
 // `full_access`: the host gave this phone every mode (the HOTKEY button).
 // `link`: the connection to the host (ping, loss), for the status line.
-NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, const PadLink* link,
+NavAction gamepad_screen_draw(const TouchUi* ui, int32_t port, const PadLink* link,
                               bool full_access, PadLayouts* layouts, PadEditor* editor);

@@ -113,7 +113,9 @@ src/shader_presets.*    REMOTE PLAY SHADER: the curated presets (deps/piccolo-sh
                         copied out of the APK to the app's folder (librashader reads plain files)
 src/devices_overlay.*   DEVICES over GAMEPAD / REMOTE PLAY (☰, FULL access), see-through: the host's ports and who
                         plays on each (devices / device_port), tap a device then MOVE HERE
-src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
+src/quick_menu.*        the quick menu over GAMEPAD / REMOTE PLAY (replaces their title bar): a sidebar from the right,
+                        opened by the see-through arrow at the top right or holding START 1 s; switch, SHADER, PACING,
+                        EDIT LAYOUT, DEVICES, TOUCH CONTROLS, ROTATE, LEAVE
 android/           build-librashader.sh: librashader for arm64 Android (rustup's aarch64-linux-android, the
                    NDK sysroot, Vulkan only) -> build/librashader/librashader.so, which build-apk.sh packs;
                    the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
