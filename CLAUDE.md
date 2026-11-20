@@ -74,7 +74,8 @@ CMakeLists.txt     options, SDL, Vulkan, imgui, the libraries, piccoletto
 src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts.cfg), screens (NavAction),
                         the ☰ sheet, ROTATE, back key; for testing: --screen home|pair|gamepad|remote_play|
                         devices|settings, --landscape, --aspect W:H (the stream's shape), --edit
-src/hosts.*             the network (frontend_net): this phone's identity, the paired hosts, LAN discovery,
+src/hosts.*             the network (frontend_net; the connection on frontends-common's net_client_service
+                        thread, every hosts_* under its lock): this phone's identity, the paired hosts, LAN discovery,
                         pairing with the code, connecting, the ping, the speed test, the pad (RetroPad) and
                         its port (controllers), FORGET on both sides; files settings/net_identity.cfg, net_hosts.cfg, hosts.cfg
 src/retropad.*          the pad as a RetroPad (Andrés: the phone maps): parts / real gamepads to
@@ -103,6 +104,8 @@ src/settings_screen.*   SETTINGS (HOME's ☰), drag to scroll
 src/gamepad_screen.*    GAMEPAD: portrait (header + pad) and landscape (the pad picture's shape)
 src/remote_play_screen.* REMOTE PLAY: the picture as big as the stream's aspect allows; the pad under it in
                         portrait if it fits, else an overlay over the picture (landscape, DS)
+src/stream_view.*       REMOTE PLAY's picture: the newest decoded frame (no queue) in a texture of the core's
+                        format, drawn with frontends-common's Picture (sharp bilinear); audio plays on the thread
 src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (placeholder devices)
 src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
 android/           the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
