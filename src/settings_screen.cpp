@@ -184,12 +184,26 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     float content = y + screen->scroll - list_top;
     float most = content > list_height ? content - list_height : 0.0f;
     bool held = false;
-    touch_ui_area(ui, "##settings_scroll", 0.0f, list_top, width, list_height, &held);
+    touch_ui_area(ui, "##settings_scroll", 0.0f, list_top, width, list_height, &held, TouchNav::taps_only);
     if (held)
     {
         screen->scroll -= ImGui::GetIO().MouseDelta.y / static_cast<float>(ui->scale);
     }
     screen->scroll -= ImGui::GetIO().MouseWheel * 16.0f;
+    // The gamepad's focus kept in view (a margin of a label above it).
+    if (ui->focus != nullptr && ui->focus->has)
+    {
+        float top = ui->focus->y - LABEL_HEIGHT;
+        float bottom = ui->focus->y + ui->focus->height + ROW_GAP;
+        if (top < list_top)
+        {
+            screen->scroll -= list_top - top;
+        }
+        else if (bottom > list_top + list_height)
+        {
+            screen->scroll += bottom - (list_top + list_height);
+        }
+    }
     screen->scroll = screen->scroll < 0.0f ? 0.0f : (screen->scroll > most ? most : screen->scroll);
     touch_ui_pop_clip();
     return action;

@@ -18,6 +18,15 @@
 
 struct ImFont;
 struct TouchFingers;
+
+// Where the gamepad's focus is this frame (a button reports itself while
+// it has it), so a scrolled list can bring it into view. Reset each frame.
+struct TouchFocus
+{
+    bool  has    = false;
+    float y      = 0.0f;   // retro pixels
+    float height = 0.0f;
+};
 struct RealGamepad;
 
 struct TouchUi
@@ -30,6 +39,7 @@ struct TouchUi
     TouchFingers*  fingers = nullptr;
     // Real gamepads (real_gamepad.h): their presses light the pads' parts too.
     const RealGamepad* gamepad = nullptr;
+    TouchFocus*    focus   = nullptr;     // nullptr: not tracked
 };
 
 // The scale for a window: the short side holds at least 195 retro pixels
@@ -87,9 +97,18 @@ enum class TouchButton
 bool touch_ui_button(const TouchUi* ui, const char* id, float x, float y, float width, float height,
                      const char* label, TouchButton style, TouchText size);
 
+// Whether gamepad navigation can reach a touch area (buttons always can):
+// a backdrop that only catches taps (outside a sheet, a scroll area) can't.
+enum class TouchNav
+{
+    reachable,
+    taps_only,
+};
+
 // A touch area with nothing drawn (the caller draws it): true when tapped,
 // *held while a finger (the mouse) is on it.
-bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held);
+bool touch_ui_area(const TouchUi* ui, const char* id, float x, float y, float width, float height, bool* held,
+                   TouchNav nav);
 
 // A light the height of a letter at (x, y + 2): online green, or `argb`.
 constexpr float TOUCH_UI_LAMP = 5.0f;

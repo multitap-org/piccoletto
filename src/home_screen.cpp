@@ -166,7 +166,7 @@ static void draw_tab(HomeScreen* home, const TouchUi* ui, int32_t others, float 
 {
     const RetroUiPalette* palette = &ui->palette;
     bool held = false;
-    if (touch_ui_area(ui, "##sidebar_tab", x, y, TAB_WIDTH, height, &held))
+    if (touch_ui_area(ui, "##sidebar_tab", x, y, TAB_WIDTH, height, &held, TouchNav::reachable))
     {
         home->sidebar_open = true;
     }
@@ -190,7 +190,7 @@ static void draw_bar(HomeScreen* home, const TouchUi* ui, const HomeHost* hosts,
 {
     const RetroUiPalette* palette = &ui->palette;
     bool held = false;
-    if (touch_ui_area(ui, "##hosts_bar", 0.0f, y, width, BAR_HEIGHT, &held))
+    if (touch_ui_area(ui, "##hosts_bar", 0.0f, y, width, BAR_HEIGHT, &held, TouchNav::reachable))
     {
         home->sidebar_open = true;
     }
@@ -365,7 +365,7 @@ void home_sidebar_draw(HomeScreen* home, const TouchUi* ui, const HomeHost* host
     float rest_width = landscape ? side_x : width;
     float rest_height = landscape ? height : side_y;
     bool held = false;
-    if (touch_ui_area(ui, "##sidebar_outside", rest_x, 0.0f, rest_width, rest_height, &held))
+    if (touch_ui_area(ui, "##sidebar_outside", rest_x, 0.0f, rest_width, rest_height, &held, TouchNav::taps_only))
     {
         home->sidebar_open = false;
     }

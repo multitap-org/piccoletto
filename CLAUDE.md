@@ -78,7 +78,9 @@ src/hosts.*             the network (frontend_net): this phone's identity, the p
                         pairing with the code, connecting, the ping, the speed test (REMOTE PLAY), FORGET on
                         both sides; files settings/net_identity.cfg, net_hosts.cfg, hosts.cfg
 src/touch_fingers.*     every finger (SDL finger events; the mouse on the desktop), for the pads and the pinch
-src/real_gamepad.*      gamepads connected to the phone: light the pad's parts, hide REMOTE PLAY's touch controls
+src/real_gamepad.*      gamepads connected to the phone: light the pad's parts, hide REMOTE PLAY's touch controls,
+                        navigate the other screens (ImGui's gamepad nav: A presses, B back); on the pads hold
+                        BACK 1 s for HOME. Not gamepads: SDL's ignore list (main.cpp), no face buttons
 src/haptics.*           VIBRATE ON PRESS (the phone's vibrator through SDL haptics; nothing on the desktop)
 src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
                         buttons (normal, primary, ghost, card, plain, field)

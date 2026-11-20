@@ -85,8 +85,8 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, 
 
     // Taps on the sheet between buttons do nothing; outside it, they close it.
     bool held = false;
-    touch_ui_area(ui, "##sheet", x, y, sheet_width, sheet_height, &held);
-    if (touch_ui_area(ui, "##sheet_outside", 0.0f, 0.0f, width, height, &held))
+    touch_ui_area(ui, "##sheet", x, y, sheet_width, sheet_height, &held, TouchNav::taps_only);
+    if (touch_ui_area(ui, "##sheet_outside", 0.0f, 0.0f, width, height, &held, TouchNav::taps_only))
     {
         picked = NavAction::menu;
     }

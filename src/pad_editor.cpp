@@ -232,7 +232,7 @@ bool pad_editor_draw(PadEditor* editor, const TouchUi* ui, const PadFrame* frame
     // Taps go to the first item under them: the toolbar's buttons above, then
     // the toolbar itself (so they don't reach a group under it), then the groups.
     bool held = false;
-    touch_ui_area(ui, "##edit_bar", bar_x, bar_y, bar_width, bar_height, &held);
+    touch_ui_area(ui, "##edit_bar", bar_x, bar_y, bar_width, bar_height, &held, TouchNav::taps_only);
     float pixels_per_dp = static_cast<float>(ui->scale) * frame->dp_scale;
     for (int32_t g = 0; g < PAD_GROUP_COUNT; g++)
     {
@@ -248,7 +248,7 @@ bool pad_editor_draw(PadEditor* editor, const TouchUi* ui, const PadFrame* frame
         group_box(frame, layout, group, &gx, &gy, &gw, &gh);
         char id[32];
         std::snprintf(id, sizeof(id), "##edit_group%d", static_cast<int>(g));
-        bool released = touch_ui_area(ui, id, gx, gy, gw, gh, &held);
+        bool released = touch_ui_area(ui, id, gx, gy, gw, gh, &held, TouchNav::taps_only);
         PadGroupEdit* group_edit = &layout->groups[g];
         if (held && !pinching)
         {

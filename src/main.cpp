@@ -8,6 +8,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "imgui.h"
+#include "imgui_impl_sdl3.h"
 
 #include "app_paths.h"
 #include "app_settings.h"
@@ -52,9 +53,11 @@ struct App
     RemoteStream   stream     = {};   // placeholder until there's a stream
     AppSettings    settings   = {};
     TouchFingers   fingers    = {};   // every finger, for the pads
+    TouchFocus     focus      = {};   // the gamepad's focus this frame (SETTINGS scrolls to it)
     Haptics        haptics    = {};   // VIBRATE ON PRESS
     RealGamepad    gamepad    = {};   // gamepads connected to the phone
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
+    double         back_held_since = 0.0;        // the pads: BACK held since (0 = not held; -1 = used, wait for release)
     Hosts          hosts;             // the paired hosts, discovery, pairing, the connection
     PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (PAIR clears the code when it fails)
     std::string    settings_dir;      // settings/ ("" = nothing is saved)
@@ -189,6 +192,11 @@ static void load_files(App* app)
 static void apply_settings(App* app)
 {
     app->ui.palette = *retro_ui_theme_palette(app->settings.theme);
+    // The gamepad's focus (ImGui draws it around the button) in the theme's highlight.
+    uint32_t focus = app->ui.palette.highlight;
+    ImGui::GetStyle().Colors[ImGuiCol_NavCursor] =
+        ImVec4(static_cast<float>((focus >> 16) & 0xFFu) / 255.0f, static_cast<float>((focus >> 8) & 0xFFu) / 255.0f,
+               static_cast<float>(focus & 0xFFu) / 255.0f, 1.0f);
     PadLayoutId overlays[2] = {PadLayoutId::remote_overlay_portrait, PadLayoutId::remote_overlay_landscape};
     for (int32_t i = 0; i < 2; i++)
     {
@@ -360,6 +368,56 @@ static void handle_events(App* app)
     }
 }
 
+// The real gamepad outside play (Andrés: the SHIELD's touch can't be used):
+// ImGui's gamepad navigation on every screen but the pads (d-pad / stick
+// move the focus, A presses, B goes back); on GAMEPAD and REMOTE PLAY the
+// gamepad plays, and holding BACK for a second goes to HOME.
+constexpr double BACK_HOLD_SECONDS = 1.0;
+
+static void update_gamepad_ui(App* app, double now)
+{
+    RealGamepad* pads = &app->gamepad;
+    if (pads->changed)
+    {
+        // Only ours (devices that aren't gamepads left out) drive ImGui.
+        ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, pads->open, pads->count);
+        pads->changed = false;
+    }
+    bool on_pad = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
+                  !app->editor.active;
+    ImGuiIO& io = ImGui::GetIO();
+    if (on_pad)
+    {
+        io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+        bool back = real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK);
+        if (!back)
+        {
+            app->back_held_since = 0.0;
+        }
+        else if (app->back_held_since == 0.0)
+        {
+            app->back_held_since = now;
+        }
+        else if (app->back_held_since > 0.0 && now - app->back_held_since >= BACK_HOLD_SECONDS)
+        {
+            app->back_held_since = -1.0;   // until it's let go
+            SDL_Log("BACK held: HOME");
+            go_to(app, Screen::home);
+        }
+        return;
+    }
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    if (app->back_held_since < 0.0 && real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK))
+    {
+        return;   // the BACK that just left a pad: not a press here
+    }
+    app->back_held_since = 0.0;
+    if (real_gamepad_pressed(pads, SDL_GAMEPAD_BUTTON_EAST) || real_gamepad_pressed(pads, SDL_GAMEPAD_BUTTON_BACK))
+    {
+        go_back(app);
+    }
+}
+
 // PAIR: the unpaired hosts found, the code, how pairing goes. When it's
 // done, HOME with the new host on the card.
 static NavAction draw_pair(App* app)
@@ -437,6 +495,8 @@ static void draw_screen(App* app)
     bool covered = app->sheet_open || (app->screen == Screen::home && app->home.sidebar_open);
     app->ui.fingers = covered ? nullptr : &app->fingers;
     app->ui.gamepad = &app->gamepad;
+    app->focus = TouchFocus{};
+    app->ui.focus = &app->focus;
     // REMOTE PLAY: the touch controls hide while a real gamepad is connected (unless shown from the sheet).
     bool gamepad_connected = real_gamepad_connected(&app->gamepad);
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
@@ -586,6 +646,10 @@ int main(int argc, char** argv)
     config.window_width  = landscape ? 900 : 420;
     config.window_height = landscape ? 420 : 900;
 
+    // Devices SDL would take for gamepads that aren't: Android TV's
+    // "virtual-search" (the remote's search key; Google 18d1:0100), on the SHIELD.
+    SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES, "0x18D1/0x0100");
+
     if (!pixel_font_init())
     {
         delete app;
@@ -605,6 +669,8 @@ int main(int argc, char** argv)
         return 1;
     }
     ImGui::GetIO().IniFilename = nullptr;   // no window layout to remember: every screen is full screen
+    // Gamepads for navigation are handed over by hand (update_gamepad_ui), none until then.
+    ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, nullptr, 0);
 #if defined(SDL_PLATFORM_ANDROID)
     // Full screen on a phone: SDL's activity hides the status and navigation
     // bars (immersive) only for a fullscreen window.
@@ -635,7 +701,9 @@ int main(int argc, char** argv)
         app->ui.scale = touch_ui_scale_for(io.DisplaySize.x, io.DisplaySize.y);
         apply_settings(app);
         real_gamepad_update(&app->gamepad);
-        hosts_update(&app->hosts, static_cast<double>(SDL_GetTicks()) / 1000.0);
+        double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
+        update_gamepad_ui(app, now);
+        hosts_update(&app->hosts, now);
         draw_screen(app);
         if (app->fingers.presses > 0 && app->settings.vibrate)
         {

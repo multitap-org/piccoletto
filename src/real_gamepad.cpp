@@ -50,10 +50,19 @@ static void add(RealGamepad* pads, SDL_JoystickID id)
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Can't open gamepad %u: %s", static_cast<unsigned>(id), SDL_GetError());
         return;
     }
+    if (!SDL_GamepadHasButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) || !SDL_GamepadHasButton(gamepad, SDL_GAMEPAD_BUTTON_EAST))
+    {
+        SDL_Log("Not a gamepad (no face buttons), left out: %s", SDL_GetGamepadName(gamepad));
+        SDL_CloseGamepad(gamepad);
+        return;
+    }
     pads->open[pads->count] = gamepad;
     pads->instance[pads->count] = id;
     pads->count++;
-    SDL_Log("Gamepad connected: %s", SDL_GetGamepadName(gamepad));
+    pads->changed = true;
+    SDL_Log("Gamepad connected: %s (vendor %04x product %04x, type %d, sticks %d)", SDL_GetGamepadName(gamepad),
+            static_cast<unsigned>(SDL_GetGamepadVendor(gamepad)), static_cast<unsigned>(SDL_GetGamepadProduct(gamepad)),
+            static_cast<int>(SDL_GetGamepadType(gamepad)), SDL_GamepadHasAxis(gamepad, SDL_GAMEPAD_AXIS_LEFTX) ? 1 : 0);
 }
 
 static void remove(RealGamepad* pads, SDL_JoystickID id)
@@ -72,6 +81,7 @@ static void remove(RealGamepad* pads, SDL_JoystickID id)
             pads->instance[j - 1] = pads->instance[j];
         }
         pads->count--;
+        pads->changed = true;
         return;
     }
 }
@@ -101,6 +111,7 @@ static float stronger(float a, float b)
 
 void real_gamepad_update(RealGamepad* pads)
 {
+    uint32_t before = pads->buttons;
     pads->buttons = 0;
     pads->left_x = 0.0f;
     pads->left_y = 0.0f;
@@ -125,6 +136,17 @@ void real_gamepad_update(RealGamepad* pads)
         pads->left_trigger = SDL_max(pads->left_trigger, axis(gamepad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
         pads->right_trigger = SDL_max(pads->right_trigger, axis(gamepad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
     }
+    pads->pressed = pads->buttons & ~before;
+}
+
+bool real_gamepad_held(const RealGamepad* pads, int32_t button)
+{
+    return button >= 0 && button < 32 && (pads->buttons & (1u << static_cast<uint32_t>(button))) != 0;
+}
+
+bool real_gamepad_pressed(const RealGamepad* pads, int32_t button)
+{
+    return button >= 0 && button < 32 && (pads->pressed & (1u << static_cast<uint32_t>(button))) != 0;
 }
 
 void real_gamepad_close(RealGamepad* pads)
