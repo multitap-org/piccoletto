@@ -13,10 +13,42 @@ colors, same type, same hard shadow (see piccolo's `assets/branding/README.md`).
 - `piccoletto-logo-dark.svg`, `piccoletto-logo-light.svg`: icon + wordmark,
   transparent background, for dark and light pages. The icon here has no
   background tile (the two tiles stand on the page).
+- `piccoletto-banner-tv-dark.svg`, `piccoletto-banner-tv-light.svg`: Android TV
+  banner, piccolo's frame with the logo, drawn at 640x360, exported at 320x180
+  (xhdpi). Dark is the one for the launcher.
+- `android/`: the Android adaptive icon and resources (see Android below).
 - `png/`: the PNG exports of all of the above.
 
-The logo SVGs have their text converted to paths, so they don't need the font
+The logo and banner SVGs have their text converted to paths, so they don't need the font
 installed.
+
+## Android
+
+`android/` has the adaptive icon (Android 8+, the APK's minimum) and a `res/` tree
+ready to copy into the APK's resources:
+
+- `ic_launcher_background.svg`, `ic_launcher_foreground.svg`: the two layers, on
+  the 108 dp canvas. Launchers show the middle 72 dp through their own mask
+  (circle, squircle, rounded square); everything that matters stays inside the
+  centered 66 dp circle, the part no mask cuts.
+- `ic_launcher_monochrome.svg`: the themed icon (Android 13+), one color; the
+  system tints it by alpha.
+- `res/mipmap-{mdpi..xxxhdpi}/`: the three layers as PNGs (108 to 432 px).
+- `res/mipmap-anydpi-v26/ic_launcher.xml`: background + foreground.
+  `res/mipmap-anydpi-v33/ic_launcher.xml`: the same plus monochrome, which is
+  an API 33 element, so linking against an older android.jar still works.
+- `res/drawable-xhdpi/banner.png`: the TV banner (`android:banner`).
+
+With `android:icon="@mipmap/ic_launcher"` in the manifest. No legacy
+`ic_launcher.png` is needed: with minSdk 26 the adaptive one is always used.
+
+    inkscape android/ic_launcher_foreground.svg -w 432 -h 432 -o android/res/mipmap-xxxhdpi/ic_launcher_foreground.png
+
+(108 mdpi, 162 hdpi, 216 xhdpi, 324 xxhdpi, 432 xxxhdpi.)
+
+The back tile (piccolo's) is in the background layer and the front tile in the
+foreground, so launchers with parallax move them apart. In the monochrome icon
+the back tile is dimmed and the d-pad and button are cut out of the front tile.
 
 ## Colors
 
@@ -54,5 +86,3 @@ PNGs:
 
 48-512 from `piccoletto-icon.svg`, 24-32 from `piccoletto-icon-small.svg`, 16
 from `piccoletto-icon-16.svg`.
-
-Not made yet: Android adaptive icon (foreground/background layers) and a TV banner.
