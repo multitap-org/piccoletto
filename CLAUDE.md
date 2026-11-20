@@ -107,10 +107,10 @@ src/devices_screen.*    DEVICES: ports as cards, tap a device then MOVE HERE (pl
 src/menu_sheet.*        the ☰ sheet over GAMEPAD / REMOTE PLAY: switch, EDIT LAYOUT, ROTATE, LEAVE
 android/           the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
-                   AndroidManifest.xml (org.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV),
+                   AndroidManifest.xml (site.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV),
                    res/ (launcher icon, TV banner: exports of assets/branding)
 assets/branding/   icon, logo, TV banner (README: colors, type, how to export)
-flatpak/           org.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
+flatpak/           site.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
 .github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64)
 tests/             hosts_test.cpp (hosts against a host in the same process: pairing, connecting, discovery)
 tools/             lsan-suppressions.txt
@@ -134,7 +134,7 @@ cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_A
 cmake --build build-asan && (cd build-asan && LSAN_OPTIONS=suppressions=$PWD/../tools/lsan-suppressions.txt ctest)
 ./build/piccoletto        # a phone-shaped window; normal builds also copy it to ~/.local/share/piccoletto/
 android/build-apk.sh      # -> android/build/piccoletto.apk (adb install --no-incremental -r ...; adb logcat -s SDL)
-adb shell "am start -S -n org.multitap.piccoletto/.PiccolettoActivity --es args '--screen gamepad'"
+adb shell "am start -S -n site.multitap.piccoletto/.PiccolettoActivity --es args '--screen gamepad'"
 adb exec-out screencap -p > shot.png   # screenshots from the device (not spectacle)
 ```
 

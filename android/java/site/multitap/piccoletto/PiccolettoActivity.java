@@ -1,4 +1,4 @@
-package org.multitap.piccoletto;
+package site.multitap.piccoletto;
 
 import org.libsdl.app.SDLActivity;
 
@@ -13,7 +13,7 @@ public class PiccolettoActivity extends SDLActivity {
 
     // The desktop's testing flags (--screen gamepad, --aspect 2:3, ...) from
     // the launch intent, to look at a screen without tapping through:
-    //   adb shell am start -S -n org.multitap.piccoletto/.PiccolettoActivity --es args "--screen gamepad"
+    //   adb shell am start -S -n site.multitap.piccoletto/.PiccolettoActivity --es args "--screen gamepad"
     @Override
     protected String[] getArguments() {
         String args = getIntent() != null ? getIntent().getStringExtra("args") : null;

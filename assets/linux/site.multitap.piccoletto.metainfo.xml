@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.multitap.piccoletto</id>
+  <id>site.multitap.piccoletto</id>
   <name>piccoletto</name>
   <summary>Companion app for piccolo</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -12,9 +12,9 @@
       between ports. It never runs games itself.
     </p>
   </description>
-  <launchable type="desktop-id">org.multitap.piccoletto.desktop</launchable>
+  <launchable type="desktop-id">site.multitap.piccoletto.desktop</launchable>
   <url type="homepage">https://github.com/multitap-org/piccoletto</url>
-  <developer id="org.multitap">
+  <developer id="site.multitap">
     <name>multitap</name>
   </developer>
   <content_rating type="oars-1.1"/>

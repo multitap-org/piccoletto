@@ -693,7 +693,7 @@ int main(int argc, char** argv)
     AppShellConfig config = {};
     config.name          = "piccoletto";
     config.version       = PICCOLETTO_VERSION;
-    config.identifier    = "org.multitap.piccoletto";
+    config.identifier    = "site.multitap.piccoletto";
     config.window_width  = landscape ? 900 : 420;
     config.window_height = landscape ? 420 : 900;
 
