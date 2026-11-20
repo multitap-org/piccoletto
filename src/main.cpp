@@ -573,6 +573,7 @@ static void draw_screen(App* app)
         link.fps = app->stream_rates.fps;
         link.kbps = app->stream_rates.kbps;
         link.lost = app->stream_rates.lost;
+        link.audio_gaps = app->stream_rates.audio_gaps;
     }
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
@@ -704,6 +705,9 @@ static void update_stream(App* app)
                                                         seconds / 1000.0)
                                 : 0;
         rates->lost = continued ? stats.lost - app->stream_last.lost : 0;
+        rates->audio_gaps = continued && stats.audio_gaps >= app->stream_last.audio_gaps
+                                ? stats.audio_gaps - app->stream_last.audio_gaps
+                                : 0;
         app->stream_last = stats;
         app->stream_sampled = now;
     }

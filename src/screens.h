@@ -52,4 +52,5 @@ struct PadLink
     uint32_t  fps = 0;          // frames that arrived whole
     uint32_t  kbps = 0;         // what the stream took
     uint32_t  lost = 0;         // frames lost
+    uint32_t  audio_gaps = 0;   // lost audio filled in
 };

@@ -136,15 +136,26 @@ static void ping_text(const PadLink* link, char* out, size_t capacity)
         {
             char* rest = out + written;
             size_t room = capacity - static_cast<size_t>(written);
-            if (link->lost > 0)
+            int more = std::snprintf(rest, room, " · %u FPS %.1f MBPS", static_cast<unsigned>(link->fps),
+                                     static_cast<double>(link->kbps) / 1000.0);
+            if (more > 0 && static_cast<size_t>(more) < room)
             {
-                std::snprintf(rest, room, " · %u FPS %.1f MBPS %u LOST", static_cast<unsigned>(link->fps),
-                              static_cast<double>(link->kbps) / 1000.0, static_cast<unsigned>(link->lost));
-            }
-            else
-            {
-                std::snprintf(rest, room, " · %u FPS %.1f MBPS", static_cast<unsigned>(link->fps),
-                              static_cast<double>(link->kbps) / 1000.0);
+                rest += more;
+                room -= static_cast<size_t>(more);
+                // Only when there are any: frames lost, audio filled in.
+                if (link->lost > 0 && link->audio_gaps > 0)
+                {
+                    std::snprintf(rest, room, " %u LOST %u GAPS", static_cast<unsigned>(link->lost),
+                                  static_cast<unsigned>(link->audio_gaps));
+                }
+                else if (link->lost > 0)
+                {
+                    std::snprintf(rest, room, " %u LOST", static_cast<unsigned>(link->lost));
+                }
+                else if (link->audio_gaps > 0)
+                {
+                    std::snprintf(rest, room, " %u GAPS", static_cast<unsigned>(link->audio_gaps));
+                }
             }
         }
     }
