@@ -262,13 +262,13 @@ static void go_to(App* app, Screen screen)
     {
         hosts_connect(&app->hosts, app->home.selected);
     }
-    if (screen == Screen::remote_play && app->screen != Screen::remote_play)
-    {
-        hosts_stream_start(&app->hosts);   // now, or as soon as the connection is ready
-    }
     else if (screen != app->screen)
     {
         hosts_disconnect(&app->hosts);
+    }
+    if (screen == Screen::remote_play && app->screen != Screen::remote_play)
+    {
+        hosts_stream_start(&app->hosts);   // now, or as soon as the connection is ready
     }
     if (app->editor.active)
     {
