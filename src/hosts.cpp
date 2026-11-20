@@ -328,6 +328,12 @@ static void speed_finish(Hosts* hosts)
         hosts->known[static_cast<size_t>(hosts->linked)].measured = true;
         write_info(hosts, host);
     }
+    if (hosts->measure_only)
+    {
+        // Connected only to measure (HOME's refresh): done, leave.
+        hosts->measure_only = false;
+        hosts_disconnect(hosts);
+    }
 }
 
 // The next rate, or the next direction, or done.
@@ -418,6 +424,9 @@ static void speed_report(Hosts* hosts, const NetSpeedReport* report)
     double loss = sent > 0.0 ? 1.0 - received / sent : 1.0;
     loss = loss < 0.0 ? 0.0 : loss;
     uint32_t kbps = seconds > 0.0 ? static_cast<uint32_t>(bytes * 8.0 / seconds / 1000.0) : 0;
+    SDL_Log("Network: speed %s asked %.0f Mbit/s, got %.1f, loss %.1f%% (%u of %u packets)",
+            report->direction == NetSpeedDirection::down ? "down" : "up", SPEED_RATES_KBPS[speed->step] / 1000.0,
+            kbps / 1000.0, loss * 100.0, static_cast<unsigned>(received), static_cast<unsigned>(sent));
     if (loss <= SPEED_MAX_LOSS && hosts->linked >= 0 && hosts->linked < static_cast<int32_t>(hosts->known.size()))
     {
         KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
@@ -481,6 +490,7 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
                 SDL_Log("Network: this phone's pad is on port %d", controllers.pad_ports[0] + 1);
             }
             hosts->pad_port = controllers.pad_ports[0];
+            hosts->controllers_known = true;
         }
     }
 }
@@ -525,14 +535,21 @@ void hosts_update(Hosts* hosts, double now)
                 hosts->next_stats = 0.0;   // the first ping right away
                 hosts->pad_sender = NetRetroPadSender{};
                 hosts->pad_port = -1;
+                hosts->controllers_known = false;
                 uint8_t request[16];
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
                 net_client_send(&hosts->client, NetChannel::control, request, size);
                 const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
-                if (event.access != NetAccessLevel::gamepad && !host->measured)
+                if (event.access != NetAccessLevel::gamepad && (!host->measured || hosts->measure_wanted))
                 {
                     speed_start(hosts);
                 }
+                else if (hosts->measure_only)
+                {
+                    hosts->measure_only = false;   // not allowed to measure after all: leave
+                    hosts_disconnect(hosts);
+                }
+                hosts->measure_wanted = false;
             }
             break;
         case NetClientEventType::unpaired:
@@ -590,6 +607,8 @@ void hosts_update(Hosts* hosts, double now)
             if (hosts->link == LinkStatus::connecting)
             {
                 hosts->link = LinkStatus::failed;
+                hosts->measure_wanted = false;
+                hosts->measure_only = false;
             }
             break;
         case NetClientEventType::closed:
@@ -670,6 +689,7 @@ bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
 
 bool hosts_connect(Hosts* hosts, int32_t index)
 {
+    hosts->measure_only = false;   // a mode wants the connection: it stays
     if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
     {
         return false;
@@ -715,6 +735,8 @@ void hosts_disconnect(Hosts* hosts)
     hosts->speed.running = false;
     hosts->has_stats = false;
     hosts->connect_pending = false;
+    hosts->measure_wanted = false;
+    hosts->measure_only = false;
     hosts->link = LinkStatus::idle;
     hosts->linked = -1;
 }
@@ -753,6 +775,48 @@ void hosts_forget(Hosts* hosts, int32_t index)
         return;
     }
     forget_here(hosts, index);
+}
+
+bool hosts_measure(Hosts* hosts, int32_t index)
+{
+    if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
+    {
+        return false;
+    }
+    const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
+    if (host->access == NetAccessLevel::gamepad)
+    {
+        return false;
+    }
+    if (hosts->link == LinkStatus::ready && hosts->linked == index)
+    {
+        if (!hosts->speed.running)
+        {
+            speed_start(hosts);
+        }
+        return true;
+    }
+    if (!host->online || hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready ||
+        hosts->pending_unpair >= 0)
+    {
+        return false;
+    }
+    if (!hosts_connect(hosts, index))
+    {
+        return false;
+    }
+    hosts->measure_wanted = true;
+    hosts->measure_only = true;
+    return true;
+}
+
+bool hosts_measuring(const Hosts* hosts, int32_t index)
+{
+    if (hosts->linked != index)
+    {
+        return false;
+    }
+    return hosts->speed.running || (hosts->link == LinkStatus::connecting && hosts->measure_wanted);
 }
 
 void hosts_send_pad(Hosts* hosts, const RetroPad* pad)

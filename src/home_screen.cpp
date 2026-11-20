@@ -17,6 +17,7 @@ constexpr float TAB_WIDTH     = 14.0f;   // landscape: the sidebar's tab at the 
 constexpr float BAR_HEIGHT    = 28.0f;   // portrait: the hosts bar at the bottom
 constexpr float SIDEBAR_MAX   = 0.8f;    // of the screen's width (landscape) or height (portrait)
 constexpr float SIDEBAR_CARD  = 64.0f;   // a host's column card
+constexpr float REFRESH_SIZE  = 24.0f;   // the bandwidth's refresh by the host's name
 
 // A light and a status word ("ONLINE"), the light level with the letters
 // (rows 2..6 of the font's cell).
@@ -86,24 +87,44 @@ static NavAction draw_card(const TouchUi* ui, const HomeHost* host, float x, flo
     float line = y + CARD_PADDING;
     draw_status(ui, inner_x, line, host->online, host->online ? "ONLINE" : "OFFLINE");
     line += touch_ui_text_height(ui, TouchText::normal) + 10.0f;
-    touch_ui_text(ui, inner_x, line, host->name, palette->text_highlight, TouchText::big);
+    float name_width = touch_ui_text(ui, inner_x, line, host->name, palette->text_highlight, TouchText::big);
+    NavAction action = NavAction::none;
+    if (host->can_measure)
+    {
+        // A small refresh by the name: measure the bandwidth now.
+        float size = REFRESH_SIZE;
+        float button_y = std::floor(line + (touch_ui_text_height(ui, TouchText::big) - size) * 0.5f);
+        if (host->measuring)
+        {
+            touch_ui_text(ui, inner_x + name_width + 6.0f, touch_ui_centered_text_y(ui, button_y, size, TouchText::normal),
+                          PIXEL_FONT_UTF8_ROTATE, palette->text_disabled, TouchText::normal);
+        }
+        else if (touch_ui_button(ui, "##measure", inner_x + name_width, button_y, size, size, PIXEL_FONT_UTF8_ROTATE,
+                                 TouchButton::plain, TouchText::normal))
+        {
+            action = NavAction::measure;
+        }
+    }
     line += touch_ui_text_height(ui, TouchText::big) + 6.0f;
     if (host->playing[0] != '\0')
     {
         touch_ui_text(ui, inner_x, line, host->playing, palette->text_disabled, TouchText::normal);
         line += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
     }
-    if (host->down_kbps > 0 || host->up_kbps > 0)
+    if (host->measuring)
+    {
+        touch_ui_text(ui, inner_x, line, "MEASURING…", palette->text_disabled, TouchText::normal);
+    }
+    else if (host->down_kbps > 0 || host->up_kbps > 0)
     {
         draw_bandwidth(ui, host, inner_x, line);
     }
 
     if (!host->online)
     {
-        return NavAction::none;   // nothing to connect to: no buttons
+        return action;   // nothing to connect to: no mode buttons
     }
 
-    NavAction action = NavAction::none;
     float button_y = y + height - CARD_PADDING - card_buttons_height(&host->access);
     if (host->access.gamepad)
     {
@@ -146,7 +167,7 @@ static float card_height(const TouchUi* ui, const HomeHost* host)
     float text = CARD_PADDING + touch_ui_text_height(ui, TouchText::normal) + 10.0f + touch_ui_text_height(ui, TouchText::big) +
                  6.0f + touch_ui_text_height(ui, TouchText::normal);
     // The game and the bandwidth share that line's room; both: one more line.
-    if (host->playing[0] != '\0' && (host->down_kbps > 0 || host->up_kbps > 0))
+    if (host->playing[0] != '\0' && (host->down_kbps > 0 || host->up_kbps > 0 || host->measuring))
     {
         text += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
     }

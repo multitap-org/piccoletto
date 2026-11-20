@@ -340,6 +340,26 @@ int main(int argc, char** argv)
 
     check(hosts->known.size() == 1 && hosts->known[0].down_kbps > 0, "speeds kept");
 
+    // HOME's refresh: not connected, so it connects, measures and leaves.
+    end = now_seconds() + 5.0;
+    while (now_seconds() < end && !(hosts->known.size() == 1 && hosts->known[0].online))
+    {
+        pump_once(&pump);
+    }
+    check(hosts_measure(hosts, 0), "refresh starts");
+    check(hosts_measuring(hosts, 0), "measuring");
+    end = now_seconds() + 20.0;
+    while (now_seconds() < end && hosts_measuring(hosts, 0))
+    {
+        pump_once(&pump);
+    }
+    check(!hosts_measuring(hosts, 0) && hosts->known[0].measured && hosts->known[0].down_kbps > 0, "refresh measured");
+    for (int32_t i = 0; i < 20; i++)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->link == LinkStatus::idle, "refresh left once done");
+
     // FORGET with the host online: it's told and forgets this phone too.
     end = now_seconds() + 5.0;
     while (now_seconds() < end && !(hosts->known.size() == 1 && hosts->known[0].online))

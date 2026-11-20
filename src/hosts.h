@@ -115,7 +115,10 @@ struct Hosts
     int32_t                pending_unpair = -1; // FORGET: connecting to tell this host, then forget it
     NetRetroPadSender      pad_sender;          // this phone's pad 0, to the connected host
     int8_t                 pad_port = -1;       // the port pad 0 plays on there (controllers), -1 = none
+    bool                   controllers_known = false;   // the host has said where our pads play (pad_port is real)
     uint32_t               next_request = 1;    // ids for requests to the host
+    bool                   measure_wanted = false;  // run the speed test when this connection is ready (HOME's refresh)
+    bool                   measure_only = false;    // connected only for that: leave once it's done
     NetClientRefusal       refusal = NetClientRefusal::none;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
 };
@@ -153,6 +156,13 @@ void hosts_send_pad(Hosts* hosts, const RetroPad* pad);
 // The port this phone's pad plays on at the connected host (1..4), 0 when
 // it isn't on one (START joins it) or there's no connection.
 int32_t hosts_pad_port(const Hosts* hosts);
+
+// HOME's refresh: a speed test now (STREAM access or more). Connected to
+// that host already: right away; else it connects, measures and leaves.
+// False when it can't (no such host, GAMEPAD access, offline, busy).
+bool hosts_measure(Hosts* hosts, int32_t index);
+// A speed test for that host is running (or connecting to run one).
+bool hosts_measuring(const Hosts* hosts, int32_t index);
 
 // FORGET: unpairs from a host. Online (and nothing else connected): it
 // connects, tells the host (which forgets this phone too) and forgets it

@@ -16,6 +16,7 @@ enum class NavAction
     edit_done,     // EDIT LAYOUT's DONE: save the layouts
     settings,
     touch_controls,   // REMOTE PLAY with a real gamepad: show / hide the touch controls
+    measure,          // HOME: speed-test the selected host now
 };
 
 enum class Screen

@@ -54,6 +54,8 @@ struct App
     TouchFingers   fingers    = {};   // every finger, for the pads
     TouchFocus     focus      = {};   // the gamepad's focus this frame (SETTINGS scrolls to it)
     RetroPad       touch_pad  = {};   // the touch pad's parts held this frame (pad_layout_draw)
+    bool           join_sent  = false;   // START was tapped for this connection (the pad joins a port)
+    int32_t        start_frames = 0;     // frames START is still held for that tap
     Haptics        haptics    = {};   // VIBRATE ON PRESS
     RealGamepad    gamepad    = {};   // gamepads connected to the phone
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
@@ -109,6 +111,8 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         shown->access.devices = host->access == NetAccessLevel::full;
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
+        shown->can_measure = host->online && host->access != NetAccessLevel::gamepad;
+        shown->measuring = hosts_measuring(&app->hosts, static_cast<int32_t>(i));
         count++;
     }
     return count;
@@ -312,6 +316,9 @@ static void handle_action(App* app, NavAction action)
         case NavAction::settings:
             go_to(app, Screen::settings);
             break;
+        case NavAction::measure:
+            hosts_measure(&app->hosts, app->home.selected);
+            break;
         case NavAction::touch_controls:
             app->touch_with_gamepad = !app->touch_with_gamepad;
             app->sheet_open = false;
@@ -422,6 +429,8 @@ static void update_gamepad_ui(App* app, double now)
 // parts held and the real gamepads, on GAMEPAD / REMOTE PLAY while they're
 // played (not under the sheet or in EDIT LAYOUT: then nothing is held, so
 // what was held is let go).
+constexpr int32_t JOIN_START_FRAMES = 6;   // about 100 ms: a tap the host can't miss
+
 static void send_pad(App* app)
 {
     bool playing = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
@@ -433,6 +442,26 @@ static void send_pad(App* app)
         RetroPad gamepad;
         real_gamepad_retropad(&app->gamepad, &gamepad);
         retropad_merge(&pad, &gamepad);
+    }
+    // Joining at once (Andrés): when the host says our pad isn't on a port,
+    // START is tapped for it (START joins on piccolo). Once per connection;
+    // leaving (HOME) closes it and the host unplugs the pad.
+    const Hosts* hosts = &app->hosts;
+    if (hosts->link != LinkStatus::ready)
+    {
+        app->join_sent = false;
+        app->start_frames = 0;
+    }
+    else if (playing && hosts->controllers_known && hosts->pad_port < 0 && !app->join_sent)
+    {
+        app->join_sent = true;
+        app->start_frames = JOIN_START_FRAMES;
+        SDL_Log("Network: tapping START to join a port");
+    }
+    if (app->start_frames > 0)
+    {
+        retropad_press(&pad, RetroPadButton::start);
+        app->start_frames--;
     }
     hosts_send_pad(&app->hosts, &pad);
 }

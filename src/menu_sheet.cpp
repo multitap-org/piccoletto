@@ -23,6 +23,7 @@ const char* nav_action_name(NavAction action)
         case NavAction::edit_done:   return "EDIT LAYOUT DONE";
         case NavAction::settings:    return "SETTINGS";
         case NavAction::touch_controls: return "TOUCH CONTROLS";
+        case NavAction::measure:     return "MEASURE";
         default:                     return "?";
     }
 }
