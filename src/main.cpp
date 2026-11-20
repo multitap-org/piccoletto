@@ -104,11 +104,17 @@ static const char* selected_host(const App* app)
     return host != nullptr ? host->name.c_str() : "";
 }
 
-// Full access: the host granted this phone everything (the HOTKEY button).
-static bool selected_full_access(const App* app)
+// What the selected host lets this phone do: STREAM and up remote play and
+// the HOTKEY button; FULL and up DEVICES.
+static bool selected_allows(const App* app, NetAccessLevel level)
 {
     const KnownHost* host = selected_known(app);
-    return host != nullptr && net_access_allows(host->access, NetAccessLevel::full);   // (or above)
+    return host != nullptr && net_access_allows(host->access, level);
+}
+
+static bool selected_full_access(const App* app)
+{
+    return selected_allows(app, NetAccessLevel::full);
 }
 
 // HOME's view of the paired hosts: the modes each access level opens.
@@ -123,7 +129,7 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         shown->name = host->name.c_str();
         shown->online = host->online;
         shown->access.gamepad = true;
-        shown->access.remote_play = host->access != NetAccessLevel::gamepad;
+        shown->access.remote_play = net_access_allows(host->access, NetAccessLevel::stream);
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
         shown->can_measure = host->online;
@@ -674,11 +680,11 @@ static void draw_screen(App* app)
             break;
         case Screen::gamepad:
             action = gamepad_screen_draw(&app->ui, hosts_pad_port(&app->hosts), &link,
-                                         selected_full_access(app), &app->layouts, &app->editor);
+                                         selected_allows(app, NetAccessLevel::stream), &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
             action = remote_play_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), &link,
-                                             selected_full_access(app), show_touch, &app->stream, &app->layouts,
+                                             selected_allows(app, NetAccessLevel::stream), show_touch, &app->stream, &app->layouts,
                                              &app->editor);
             break;
         case Screen::settings:
@@ -1060,6 +1066,17 @@ int main(int argc, char** argv)
         {
             SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
             go_to(app, Screen::home);
+        }
+        // The host changed this phone's level while it plays (the access
+        // event; the host already stopped what the new level doesn't allow).
+        if (app->screen == Screen::remote_play && !selected_allows(app, NetAccessLevel::stream) && !app->testing)
+        {
+            SDL_Log("Network: %s took REMOTE PLAY away: GAMEPAD", selected_host(app));
+            go_to(app, Screen::gamepad);
+        }
+        if (app->devices_open && !selected_full_access(app) && !app->testing)
+        {
+            app->devices_open = false;
         }
         update_stream(app);
         draw_screen(app);

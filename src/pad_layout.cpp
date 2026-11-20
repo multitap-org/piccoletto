@@ -332,13 +332,13 @@ static const TouchFinger* holding_finger(const TouchUi* ui, const PadPart* part,
     return nullptr;
 }
 
-void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, bool full_access)
+void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, bool hotkeys)
 {
     uint32_t held_now = 0;
     for (int32_t i = 0; i < layout->count && i < PAD_MAX_PARTS; i++)
     {
         const PadPart* part = &layout->parts[i];
-        if (part->kind == PadPartKind::hotkey && !full_access)
+        if (part->kind == PadPartKind::hotkey && !hotkeys)
         {
             continue;
         }

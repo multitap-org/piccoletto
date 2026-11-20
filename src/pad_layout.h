@@ -128,9 +128,9 @@ float pad_y(const PadFrame* frame, float dp);
 float pad_size(const PadFrame* frame, float dp);
 
 // Draws the layout's parts (at its alpha, the held ones lit: from ui->fingers
-// and ui->gamepad); the hotkey button only with `full_access`. Parts newly
+// and ui->gamepad); the hotkey button only with `hotkeys`. Parts newly
 // held by a finger this frame are added to ui->fingers->presses.
-void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, bool full_access);
+void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, bool hotkeys);
 
 // One part at screen position (retro pixels), at `alpha`; `held` lit;
 // `overlay`: in the button color (over a picture) instead of the field color

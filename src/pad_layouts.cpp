@@ -18,7 +18,7 @@ constexpr PadGroup RSTICK = PadGroup::right_stick;
 
 // GAMEPAD, portrait (390 x 844 dp): shoulders on top, the body below with the
 // d-pad and the face buttons, SELECT / START / the piccolo menu, both sticks
-// at the bottom; HOTKEY under SELECT / START (only with full access). (The
+// at the bottom; HOTKEY under SELECT / START (only with STREAM access or above). (The
 // header line is the screen's, not the layout's.)
 static const PadPart GAMEPAD_PORTRAIT[] = {
     {"##l2", "L2", 16, 92, 160, 40, BUTTON, NORMAL, LSH},

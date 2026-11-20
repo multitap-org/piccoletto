@@ -7,18 +7,18 @@
 #include "title_bar.h"
 
 // The pad's layout (or its editor, while editing).
-static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool full_access)
+static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool hotkeys)
 {
     if (editor->active)
     {
         return pad_editor_draw(editor, ui, frame, layout) ? NavAction::edit_done : NavAction::none;
     }
-    pad_layout_draw(ui, frame, layout, full_access);
+    pad_layout_draw(ui, frame, layout, hotkeys);
     return NavAction::none;
 }
 
 NavAction gamepad_screen_draw(const TouchUi* ui, int32_t port, const PadLink* link,
-                              bool full_access, PadLayouts* layouts, PadEditor* editor)
+                              bool hotkeys, PadLayouts* layouts, PadEditor* editor)
 {
     const RetroUiPalette* palette = &ui->palette;
     bool landscape = touch_ui_width(ui) > touch_ui_height(ui);
@@ -38,7 +38,7 @@ NavAction gamepad_screen_draw(const TouchUi* ui, int32_t port, const PadLink* li
                 action = NavAction::menu;
             }
         }
-        NavAction pad = draw_pad(ui, &frame, layout, editor, full_access);
+        NavAction pad = draw_pad(ui, &frame, layout, editor, hotkeys);
         return pad != NavAction::none ? pad : action;
     }
 
@@ -55,6 +55,6 @@ NavAction gamepad_screen_draw(const TouchUi* ui, int32_t port, const PadLink* li
             action = NavAction::menu;
         }
     }
-    NavAction pad = draw_pad(ui, &frame, layout, editor, full_access);
+    NavAction pad = draw_pad(ui, &frame, layout, editor, hotkeys);
     return pad != NavAction::none ? pad : action;
 }

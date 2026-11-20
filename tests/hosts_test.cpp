@@ -310,6 +310,21 @@ static void end_wait(Pump* pump, double seconds)
     }
 }
 
+// Until the connected host's level is `level` (told live, no reconnect).
+static bool pump_until_access(Pump* pump, NetAccessLevel level)
+{
+    double end = now_seconds() + 5.0;
+    while (now_seconds() < end)
+    {
+        pump_once(pump);
+        if (!pump->hosts->known.empty() && pump->hosts->known[0].access == level)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool pump_until_link_done(Pump* pump)
 {
     double end = now_seconds() + 5.0;
@@ -445,6 +460,20 @@ int main(int argc, char** argv)
     end_wait(&pump, 20.0);
     check(!hosts->speed.running, "the speed test ends");
     check(!hosts->known.empty() && hosts->known[0].down_kbps > 0 && hosts->known[0].up_kbps > 0, "speeds measured");
+
+    // The host changes our level while we're connected: told at once.
+    if (access->trust.devices.size() == 1)
+    {
+        net_access_set_level(access, 0, NetAccessLevel::gamepad);
+    }
+    check(pump_until_access(&pump, NetAccessLevel::gamepad) && hosts->link == LinkStatus::ready,
+          "a lower level arrives live");
+    if (access->trust.devices.size() == 1)
+    {
+        net_access_set_level(access, 0, NetAccessLevel::full);
+    }
+    check(pump_until_access(&pump, NetAccessLevel::full) && hosts->link == LinkStatus::ready,
+          "a higher level arrives live");
 
     // REMOTE PLAY: the stream is asked for (with its tuning), a frame arrives
     // exact, it stops.

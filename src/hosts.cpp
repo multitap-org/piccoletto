@@ -667,6 +667,10 @@ static void update_locked(Hosts* hosts, double now)
             if (hosts->linked >= 0 && hosts->linked < static_cast<int32_t>(hosts->known.size()))
             {
                 KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
+                // Told live (and in the welcome when it changed offline). The
+                // UI reads host->access each frame; the host already stopped
+                // what the new level doesn't allow (the stream, headless).
+                SDL_Log("Network: %s set this phone to %s", host->name.c_str(), net_access_level_name(event.access));
                 host->access = event.access;
                 write_info(hosts, host);
                 // Raised to FULL with DEVICES wanted: ask now; lowered: the list goes.
