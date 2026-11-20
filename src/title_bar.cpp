@@ -138,6 +138,13 @@ static void ping_text(const PadLink* link, char* out, size_t capacity)
             size_t room = capacity - static_cast<size_t>(written);
             int more = std::snprintf(rest, room, " · %u FPS %.1f MBPS", static_cast<unsigned>(link->fps),
                                      static_cast<double>(link->kbps) / 1000.0);
+            // The host's frame delay for this stream (stream_tuning), when it said.
+            if (more > 0 && static_cast<size_t>(more) < room && link->delay_ms >= 0)
+            {
+                rest += more;
+                room -= static_cast<size_t>(more);
+                more = std::snprintf(rest, room, " · DELAY %d", static_cast<int>(link->delay_ms));
+            }
             if (more > 0 && static_cast<size_t>(more) < room)
             {
                 rest += more;
@@ -170,7 +177,7 @@ constexpr float BARS_WIDTH = 3.0f * BAR_WIDTH + 2.0f * BAR_GAP + 5.0f;   // with
 
 float title_bar_ping_width(const TouchUi* ui, const PadLink* link)
 {
-    char text[64];
+    char text[96];
     ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text_width(ui, text, TouchText::normal);
 }
@@ -194,7 +201,7 @@ float title_bar_ping(const TouchUi* ui, float x, float y, const PadLink* link, u
         touch_ui_rect(ui, x + static_cast<float>(i) * (BAR_WIDTH + BAR_GAP), bottom - height, BAR_WIDTH, height,
                       i < lit ? color : palette->panel_dark);
     }
-    char text[64];
+    char text[96];
     ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text(ui, x + BARS_WIDTH, y, text, text_argb, TouchText::normal);
 }

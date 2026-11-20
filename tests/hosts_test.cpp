@@ -55,6 +55,7 @@ struct Pump
     bool             streaming = false;  // the phone asked for the stream (stream_start, no stop since)
     uint32_t         stream_peer = 0;
     uint8_t          stream_flags = 0;
+    NetStreamDelay   tuning_asked = NetStreamDelay::host;   // the last stream_tuning's delay mode
 };
 
 // The stream's picture: 40x30 RGB565 with a pattern that changes with `n`.
@@ -193,6 +194,20 @@ static void pump_once(Pump* pump)
             uint8_t out[256];
             size_t size = net_content_write_game_state(out, sizeof(out), &game);
             net_access_send(pump->access, event.peer, NetChannel::control, out, size);
+        }
+        else if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_STREAM_TUNING)
+        {
+            // As piccolo: AUTO asked, 7 ms in use for now.
+            NetStreamTuning asked;
+            if (net_stream_read_tuning(event.data, event.size, NET_STREAM_TUNING, &asked))
+            {
+                pump->tuning_asked = asked.delay;
+                NetStreamTuning result = asked;
+                result.delay_ms = 7;
+                uint8_t out[8];
+                size_t size = net_stream_write_tuning(out, sizeof(out), NET_STREAM_TUNING_RESULT, &result);
+                net_access_send(pump->access, event.peer, NetChannel::control, out, size);
+            }
         }
         else if (event.channel == NetChannel::control && event.size == 1 && event.data[0] == NET_STREAM_STOP)
         {
@@ -380,7 +395,11 @@ int main(int argc, char** argv)
     check(!hosts->speed.running, "the speed test ends");
     check(!hosts->known.empty() && hosts->known[0].down_kbps > 0 && hosts->known[0].up_kbps > 0, "speeds measured");
 
-    // REMOTE PLAY: the stream is asked for, a frame arrives exact, it stops.
+    // REMOTE PLAY: the stream is asked for (with its tuning), a frame arrives
+    // exact, it stops.
+    NetStreamTuning tuning;
+    tuning.delay = NetStreamDelay::automatic;
+    hosts_set_stream_tuning(hosts, &tuning);
     hosts_stream_start(hosts);
     double stream_end = now_seconds() + 5.0;
     while (now_seconds() < stream_end && !pump.streaming)
@@ -416,6 +435,10 @@ int main(int argc, char** argv)
     }
     check(exact, "the host's frames arrive exact, with their stream_info");
     check(hosts_game_running(hosts) == 1, "a game runs (game_state)");
+    NetStreamTuning applied;
+    check(pump.tuning_asked == NetStreamDelay::automatic && hosts_stream_tuning_result(hosts, &applied) &&
+              applied.delay_ms == 7,
+          "stream_tuning asked for AUTO; the host's 7 ms read back");
     NetClientStreamStats stream_stats;
     hosts_stream_stats(hosts, &stream_stats);
     check(stream_stats.frames >= 9 && stream_stats.audio_samples >= 9 * 64, "frames and audio counted");

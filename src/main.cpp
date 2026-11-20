@@ -574,6 +574,11 @@ static void draw_screen(App* app)
         link.kbps = app->stream_rates.kbps;
         link.lost = app->stream_rates.lost;
         link.audio_gaps = app->stream_rates.audio_gaps;
+        NetStreamTuning tuning;
+        if (hosts_stream_tuning_result(&app->hosts, &tuning))
+        {
+            link.delay_ms = tuning.delay_ms;
+        }
     }
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
@@ -668,6 +673,15 @@ static void apply_pacing(App* app)
     uint32_t in_flight = pacing == StreamPacing::latency ? 1 : FRAMES_IN_FLIGHT;
     bool start_late = pacing == StreamPacing::latency;
     hosts_set_frame_queue(&app->hosts, queue);
+    // And on the host, for this stream only (stream_tuning; piccolo's
+    // settings aren't touched): SMOOTH keeps the host's own frame delay,
+    // BALANCED and LATENCY ask for its AUTO search (run-ahead later).
+    if (playing)
+    {
+        NetStreamTuning tuning;
+        tuning.delay = pacing == StreamPacing::smooth ? NetStreamDelay::host : NetStreamDelay::automatic;
+        hosts_set_stream_tuning(&app->hosts, &tuning);
+    }
     Renderer* renderer = &app->shell.renderer;
     if (renderer->frames_in_flight != in_flight || renderer->wait_for_present != start_late)
     {

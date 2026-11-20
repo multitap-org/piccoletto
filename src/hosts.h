@@ -126,6 +126,10 @@ struct Hosts
     bool                   game_known = false;  // the host has said whether a game runs (game_state)
     NetGameState           game;
     uint8_t                stream_flags = 0;    // remote play wanted (NET_STREAM_WANT_*): asked for once ready
+    NetStreamTuning        tuning;              // how the host should run while we stream (the pacing)
+    bool                   tuning_wanted = false;
+    NetStreamTuning        tuning_result;       // what the host applies (stream_tuning_result)
+    bool                   has_tuning_result = false;
     NetClientRefusal       refusal = NetClientRefusal::none;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
 };
@@ -184,6 +188,12 @@ void hosts_stream_stop(Hosts* hosts);
 // The newest picture, if one came since the last call (net_client_service_take_frame).
 bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* width, uint32_t* height,
                       FramePixelFormat* format, uint32_t* frame, NetStreamInfo* info);
+// What the host should do while this phone streams (stream_tuning: frame
+// delay, run-ahead), sent with the stream and again when it changes. Only in
+// the host's memory: its settings aren't touched.
+void hosts_set_stream_tuning(Hosts* hosts, const NetStreamTuning* tuning);
+// What the host applies now (false until it said).
+bool hosts_stream_tuning_result(const Hosts* hosts, NetStreamTuning* tuning);
 // How many pictures REMOTE PLAY takes in order (1 = only the newest; net_client_service_set_frame_queue).
 void hosts_set_frame_queue(Hosts* hosts, uint32_t depth);
 // The stream's counts (frames, losses, bytes, audio).

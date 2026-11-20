@@ -53,4 +53,5 @@ struct PadLink
     uint32_t  kbps = 0;         // what the stream took
     uint32_t  lost = 0;         // frames lost
     uint32_t  audio_gaps = 0;   // lost audio filled in
+    int32_t   delay_ms = -1;    // the host's frame delay for the stream (-1 = not known)
 };

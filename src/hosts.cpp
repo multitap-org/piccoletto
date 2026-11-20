@@ -484,6 +484,24 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         speed_report(hosts, &report);
         return;
     }
+    // What the host applies of our stream_tuning (again whenever it changes).
+    if (event->size > 0 && event->data[0] == NET_STREAM_TUNING_RESULT)
+    {
+        NetStreamTuning result;
+        if (net_stream_read_tuning(event->data, event->size, NET_STREAM_TUNING_RESULT, &result))
+        {
+            if (!hosts->has_tuning_result || result.delay_ms != hosts->tuning_result.delay_ms ||
+                result.delay != hosts->tuning_result.delay)
+            {
+                SDL_Log("Network: the host runs the stream with a %u ms frame delay (mode %d), run-ahead %u",
+                        static_cast<unsigned>(result.delay_ms), static_cast<int>(result.delay),
+                        static_cast<unsigned>(result.run_ahead));
+            }
+            hosts->tuning_result = result;
+            hosts->has_tuning_result = true;
+        }
+        return;
+    }
     // Whether a game runs (sent when connected and when it changes).
     if (event->size > 0 && event->data[0] == NET_GAME_STATE_MESSAGE)
     {
@@ -508,6 +526,21 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
             hosts->pad_port = controllers.pad_ports[0];
             hosts->controllers_known = true;
         }
+    }
+}
+
+// stream_tuning to the host, while streaming (under the lock).
+static void send_tuning(Hosts* hosts)
+{
+    if (!hosts->tuning_wanted || hosts->stream_flags == 0 || hosts->link != LinkStatus::ready)
+    {
+        return;
+    }
+    uint8_t message[8];
+    size_t size = net_stream_write_tuning(message, sizeof(message), NET_STREAM_TUNING, &hosts->tuning);
+    if (size > 0)
+    {
+        net_client_send(&hosts->net.client, NetChannel::control, message, size);
     }
 }
 
@@ -553,6 +586,8 @@ static void update_locked(Hosts* hosts, double now)
                 {
                     bool asked = net_client_service_set_stream(&hosts->net, hosts->stream_flags);
                     SDL_Log("Network: remote play %s", asked ? "asked for" : "NOT asked for (not ready)");
+                    hosts->has_tuning_result = false;
+                    send_tuning(hosts);
                 }
                 uint8_t request[16];
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
@@ -930,6 +965,8 @@ void hosts_stream_start(Hosts* hosts)
     {
         net_client_service_lock(&hosts->net);
         bool asked = net_client_service_set_stream(&hosts->net, hosts->stream_flags);
+        hosts->has_tuning_result = false;
+        send_tuning(hosts);
         net_client_service_unlock(&hosts->net);
         SDL_Log("Network: remote play %s", asked ? "asked for" : "NOT asked for (not ready)");
     }
@@ -942,6 +979,7 @@ void hosts_stream_stop(Hosts* hosts)
         return;
     }
     hosts->stream_flags = 0;
+    hosts->has_tuning_result = false;
     if (hosts->ok)
     {
         net_client_service_lock(&hosts->net);
@@ -954,6 +992,31 @@ bool hosts_take_frame(Hosts* hosts, std::vector<uint8_t>* pixels, uint32_t* widt
                       FramePixelFormat* format, uint32_t* frame, NetStreamInfo* info)
 {
     return hosts->ok && net_client_service_take_frame(&hosts->net, pixels, width, height, format, frame, info);
+}
+
+void hosts_set_stream_tuning(Hosts* hosts, const NetStreamTuning* tuning)
+{
+    bool same = hosts->tuning_wanted && hosts->tuning.delay == tuning->delay &&
+                hosts->tuning.delay_ms == tuning->delay_ms && hosts->tuning.run_ahead == tuning->run_ahead;
+    if (same || !hosts->ok)
+    {
+        return;
+    }
+    hosts->tuning = *tuning;
+    hosts->tuning_wanted = true;
+    net_client_service_lock(&hosts->net);
+    send_tuning(hosts);
+    net_client_service_unlock(&hosts->net);
+}
+
+bool hosts_stream_tuning_result(const Hosts* hosts, NetStreamTuning* tuning)
+{
+    if (!hosts->has_tuning_result || hosts->stream_flags == 0 || hosts->link != LinkStatus::ready)
+    {
+        return false;
+    }
+    *tuning = hosts->tuning_result;
+    return true;
 }
 
 void hosts_set_frame_queue(Hosts* hosts, uint32_t depth)
