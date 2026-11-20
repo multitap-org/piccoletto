@@ -122,7 +122,9 @@ android/           build-librashader.sh: librashader for arm64 Android (rustup's
                    the APK without Gradle: build-apk.sh (libmain.so with hosts-common's
                    cmake/android-toolchain.cmake, SDL's Java activity + PiccolettoActivity),
                    AndroidManifest.xml (site.multitap.piccoletto, minSdk 28, targetSdk 35; phone and TV);
-                   the icon and banner come from assets/branding/android/res
+                   the icon and banner come from assets/branding/android/res. build-apk.sh --legacy:
+                   piccoletto-legacy.apk (site.multitap.piccoletto.legacy, armeabi-v7a, minSdk 21, OpenGL ES 2,
+                   no Vulkan or librashader: the SHIELD Portable / Tegra 4), res-legacy (LEGACY banner)
 assets/branding/   icon (android/: adaptive), logo, TV banner light / dark (README: colors, type, how to export)
 flatpak/           site.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
 .github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64)
@@ -157,7 +159,7 @@ The screen follows the phone (SDL's "full user", so the system rotation lock
 is respected); ROTATE locks it to the other side. `MULTITAP_VULKAN_1_1=1`
 tries frontends-common's Vulkan 1.1 path (older phones) on the desktop.
 
-25 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
+31 tests (the libraries', netcode included, and piccoletto's hosts test). Before calling a larger change done: warnings as
 errors clean, ctest in both builds, no Vulkan validation messages, no
 ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
 
