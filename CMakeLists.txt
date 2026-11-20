@@ -140,6 +140,7 @@ set(PICCOLETTO_SOURCES
     src/haptics.cpp
     src/real_gamepad.cpp
     src/hosts.cpp
+    src/retropad.cpp
 )
 if(ANDROID)
     # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):
@@ -173,6 +174,7 @@ if(MULTITAP_BUILD_TESTS)
     add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)
     target_include_directories(piccoletto_hosts_test PRIVATE src)
     target_link_libraries(piccoletto_hosts_test PRIVATE frontend_common frontend_net)
+    target_sources(piccoletto_hosts_test PRIVATE src/retropad.cpp)
     multitap_set_project_flags(piccoletto_hosts_test)
     set(HOSTS_TEST_SCRATCH "${CMAKE_CURRENT_BINARY_DIR}/hosts_test")
     add_test(NAME piccoletto_hosts_clean COMMAND ${CMAKE_COMMAND} -E rm -rf "${HOSTS_TEST_SCRATCH}")

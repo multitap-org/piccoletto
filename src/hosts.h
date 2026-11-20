@@ -32,6 +32,7 @@
 
 #include "net_client.h"
 #include "net_host.h"
+#include "net_input.h"
 #include "net_speed.h"
 #include "screens.h"   // LinkShown
 #include "settings_file.h"
@@ -112,6 +113,9 @@ struct Hosts
     NetLinkStats           stats;
     double                 next_stats = 0.0;    // when to read them again (every 5 s)
     int32_t                pending_unpair = -1; // FORGET: connecting to tell this host, then forget it
+    NetRetroPadSender      pad_sender;          // this phone's pad 0, to the connected host
+    int8_t                 pad_port = -1;       // the port pad 0 plays on there (controllers), -1 = none
+    uint32_t               next_request = 1;    // ids for requests to the host
     NetClientRefusal       refusal = NetClientRefusal::none;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
 };
@@ -140,6 +144,15 @@ bool hosts_connect(Hosts* hosts, int32_t index);
 void hosts_disconnect(Hosts* hosts);
 // Stop pairing or connecting; the pair / link status goes back to idle.
 void hosts_cancel(Hosts* hosts);
+
+// While connected: this phone's pad (pad 0) as a RetroPad, once a frame
+// (each packet repeats the last few states: a lost one costs nothing).
+struct RetroPad;
+void hosts_send_pad(Hosts* hosts, const RetroPad* pad);
+
+// The port this phone's pad plays on at the connected host (1..4), 0 when
+// it isn't on one (START joins it) or there's no connection.
+int32_t hosts_pad_port(const Hosts* hosts);
 
 // FORGET: unpairs from a host. Online (and nothing else connected): it
 // connects, tells the host (which forgets this phone too) and forgets it

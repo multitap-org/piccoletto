@@ -28,6 +28,7 @@ struct TouchFocus
     float height = 0.0f;
 };
 struct RealGamepad;
+struct RetroPad;
 
 struct TouchUi
 {
@@ -40,6 +41,9 @@ struct TouchUi
     // Real gamepads (real_gamepad.h): their presses light the pads' parts too.
     const RealGamepad* gamepad = nullptr;
     TouchFocus*    focus   = nullptr;     // nullptr: not tracked
+    // The touch pad's state this frame (pad_layout_draw adds the parts its
+    // fingers hold); nullptr: not collected.
+    RetroPad*      pad     = nullptr;
 };
 
 // The scale for a window: the short side holds at least 195 retro pixels

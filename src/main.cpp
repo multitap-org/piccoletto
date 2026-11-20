@@ -27,6 +27,7 @@
 #include "pixel_font.h"
 #include "pixel_font_imgui.h"
 #include "real_gamepad.h"
+#include "retropad.h"
 #include "remote_play_screen.h"
 #include "retro_ui.h"
 #include "screens.h"
@@ -35,8 +36,6 @@
 #include "touch_fingers.h"
 #include "touch_ui.h"
 
-// The port this phone's pad plays on: from the host's controllers message, later.
-constexpr int32_t PLACEHOLDER_PORT = 1;
 
 struct App
 {
@@ -54,6 +53,7 @@ struct App
     AppSettings    settings   = {};
     TouchFingers   fingers    = {};   // every finger, for the pads
     TouchFocus     focus      = {};   // the gamepad's focus this frame (SETTINGS scrolls to it)
+    RetroPad       touch_pad  = {};   // the touch pad's parts held this frame (pad_layout_draw)
     Haptics        haptics    = {};   // VIBRATE ON PRESS
     RealGamepad    gamepad    = {};   // gamepads connected to the phone
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
@@ -418,6 +418,25 @@ static void update_gamepad_ui(App* app, double now)
     }
 }
 
+// This phone's pad to the connected host, once a frame: the touch pad's
+// parts held and the real gamepads, on GAMEPAD / REMOTE PLAY while they're
+// played (not under the sheet or in EDIT LAYOUT: then nothing is held, so
+// what was held is let go).
+static void send_pad(App* app)
+{
+    bool playing = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
+                   !app->editor.active;
+    RetroPad pad;
+    if (playing)
+    {
+        pad = app->touch_pad;
+        RetroPad gamepad;
+        real_gamepad_retropad(&app->gamepad, &gamepad);
+        retropad_merge(&pad, &gamepad);
+    }
+    hosts_send_pad(&app->hosts, &pad);
+}
+
 // PAIR: the unpaired hosts found, the code, how pairing goes. When it's
 // done, HOME with the new host on the card.
 static NavAction draw_pair(App* app)
@@ -497,6 +516,8 @@ static void draw_screen(App* app)
     app->ui.gamepad = &app->gamepad;
     app->focus = TouchFocus{};
     app->ui.focus = &app->focus;
+    app->touch_pad = RetroPad{};
+    app->ui.pad = &app->touch_pad;
     // REMOTE PLAY: the touch controls hide while a real gamepad is connected (unless shown from the sheet).
     bool gamepad_connected = real_gamepad_connected(&app->gamepad);
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
@@ -514,11 +535,11 @@ static void draw_screen(App* app)
             action = draw_pair(app);
             break;
         case Screen::gamepad:
-            action = gamepad_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, link, ping_ms,
+            action = gamepad_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), link, ping_ms,
                                          selected_full_access(app), &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
-            action = remote_play_screen_draw(&app->ui, selected_host(app), PLACEHOLDER_PORT, link, ping_ms,
+            action = remote_play_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), link, ping_ms,
                                              selected_full_access(app), show_touch, &app->stream, &app->layouts,
                                              &app->editor);
             break;
@@ -705,6 +726,7 @@ int main(int argc, char** argv)
         update_gamepad_ui(app, now);
         hosts_update(&app->hosts, now);
         draw_screen(app);
+        send_pad(app);
         if (app->fingers.presses > 0 && app->settings.vibrate)
         {
             haptics_buzz(&app->haptics);

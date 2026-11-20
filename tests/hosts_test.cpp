@@ -16,7 +16,9 @@
 #include "host_fs.h"
 #include "hosts.h"
 #include "net_access.h"
+#include "net_settings.h"
 #include "net_speed.h"
+#include "retropad.h"
 
 static int g_failures = 0;
 
@@ -44,6 +46,8 @@ struct Pump
     NetSpeedSender   sender;
     NetSpeedReceiver receiver;
     bool             reporting = false;
+    uint16_t         last_buttons = 0;   // the newest RetroPad the phone sent
+    uint32_t         retropads = 0;      // how many RetroPad packets came
 };
 
 // As piccolo's net_speed_request / net_speed_update.
@@ -117,9 +121,28 @@ static void pump_once(Pump* pump)
         {
             continue;
         }
+        uint32_t id = 0;
+        uint8_t pad = 0;
+        NetRetroPadState states[NET_INPUT_HISTORY];
+        uint32_t count = 0;
         if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_SPEED_REQUEST)
         {
             host_speed_request(pump, &event);
+        }
+        else if (event.channel == NetChannel::control &&
+                 net_settings_read_controllers_request(event.data, event.size, &id))
+        {
+            // As piccolo: the phone's pad 0 plays on port 1.
+            NetControllers controllers;
+            controllers.pad_ports[0] = 0;
+            uint8_t out[256];
+            size_t size = net_settings_write_controllers(out, sizeof(out), id, &controllers);
+            net_access_send(pump->access, event.peer, NetChannel::control, out, size);
+        }
+        else if (event.channel == NetChannel::input && net_input_read_retropad(event.data, event.size, &pad, states, &count))
+        {
+            pump->last_buttons = states[count - 1].buttons;   // oldest first
+            pump->retropads++;
         }
         else if (event.channel == NetChannel::input)
         {
@@ -257,8 +280,22 @@ int main(int argc, char** argv)
     check(hosts->has_stats, "the ping while connected");
     uint32_t ping_ms = 0;
     check(hosts_link_shown(hosts, &ping_ms) == LinkShown::ready, "the status shows the ping");
+    check(hosts_pad_port(hosts) == 1, "the pad's port from the host's controllers");
+
+    // The pad: A and START held reach the host as a RetroPad.
+    RetroPad pad;
+    retropad_press(&pad, RetroPadButton::a);
+    retropad_press(&pad, RetroPadButton::start);
+    for (int32_t i = 0; i < 20; i++)
+    {
+        hosts_send_pad(hosts, &pad);
+        pump_once(&pump);
+    }
+    uint16_t expected = static_cast<uint16_t>((1u << 8) | (1u << 3));
+    check(pump.retropads > 0 && pump.last_buttons == expected, "the RetroPad reaches the host");
     check(!hosts->speed.running && !hosts->known[0].measured, "no speed test at gamepad level");
     hosts_disconnect(hosts);
+    check(hosts_pad_port(hosts) == 0, "no port once left");
     check(hosts_link_shown(hosts, &ping_ms) == LinkShown::offline, "offline once left");
 
     // The host raises our level: the next connection brings it, and runs the

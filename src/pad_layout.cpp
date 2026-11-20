@@ -6,6 +6,7 @@
 #include <cstdlib>
 
 #include "real_gamepad.h"
+#include "retropad.h"
 #include "settings_file.h"
 #include "touch_fingers.h"
 
@@ -355,6 +356,16 @@ void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout
         float stick_y = 0.0f;
         bool on_gamepad = ui->gamepad != nullptr && real_gamepad_part_held(ui->gamepad, part->id, &stick_x, &stick_y);
         bool held = finger != nullptr || on_gamepad;
+        if (finger != nullptr && ui->pad != nullptr)
+        {
+            // What the host gets: the parts fingers hold (a real gamepad's
+            // presses are added from the gamepad itself).
+            RetroPadButton button = RetroPadButton::b;
+            if (retropad_button_for_part(part->id, &button))
+            {
+                retropad_press(ui->pad, button);
+            }
+        }
         if (finger != nullptr)
         {
             uint32_t bit = 1u << static_cast<uint32_t>(i);
@@ -368,6 +379,12 @@ void pad_layout_draw(const TouchUi* ui, const PadFrame* frame, PadLayout* layout
                 float scale = static_cast<float>(ui->scale);
                 stick_x = stick_axis(finger->x / scale, screen_x, screen_width);
                 stick_y = stick_axis(finger->y / scale, screen_y, screen_height);
+                if (ui->pad != nullptr)
+                {
+                    int32_t which = part->group == PadGroup::right_stick ? 1 : 0;
+                    ui->pad->analog[which][0] = retropad_axis(stick_x);
+                    ui->pad->analog[which][1] = retropad_axis(stick_y);
+                }
             }
         }
         pad_part_draw(ui, part, screen_x, screen_y, screen_width, screen_height, layout->alpha, held, layout->overlay, stick_x,

@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL.h>
 
+#include "retropad.h"
+
 // A stick counts as held past this (so a resting stick doesn't light), a
 // trigger as pressed past half way.
 constexpr float STICK_DEADZONE    = 0.2f;
@@ -208,4 +210,46 @@ bool real_gamepad_part_held(const RealGamepad* pads, const char* part_id, float*
         }
     }
     return false;
+}
+
+void real_gamepad_retropad(const RealGamepad* pads, RetroPad* pad)
+{
+    *pad = RetroPad{};
+    if (pads->count == 0)
+    {
+        return;
+    }
+    struct ButtonMap
+    {
+        SDL_GamepadButton sdl;
+        RetroPadButton    retro;
+    };
+    static const ButtonMap MAP[] = {
+        {SDL_GAMEPAD_BUTTON_SOUTH, RetroPadButton::b},          {SDL_GAMEPAD_BUTTON_EAST, RetroPadButton::a},
+        {SDL_GAMEPAD_BUTTON_WEST, RetroPadButton::y},           {SDL_GAMEPAD_BUTTON_NORTH, RetroPadButton::x},
+        {SDL_GAMEPAD_BUTTON_BACK, RetroPadButton::select},      {SDL_GAMEPAD_BUTTON_START, RetroPadButton::start},
+        {SDL_GAMEPAD_BUTTON_DPAD_UP, RetroPadButton::up},       {SDL_GAMEPAD_BUTTON_DPAD_DOWN, RetroPadButton::down},
+        {SDL_GAMEPAD_BUTTON_DPAD_LEFT, RetroPadButton::left},   {SDL_GAMEPAD_BUTTON_DPAD_RIGHT, RetroPadButton::right},
+        {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, RetroPadButton::l},  {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, RetroPadButton::r},
+        {SDL_GAMEPAD_BUTTON_LEFT_STICK, RetroPadButton::l3},    {SDL_GAMEPAD_BUTTON_RIGHT_STICK, RetroPadButton::r3},
+    };
+    for (size_t i = 0; i < sizeof(MAP) / sizeof(MAP[0]); i++)
+    {
+        if (button(pads, MAP[i].sdl))
+        {
+            retropad_press(pad, MAP[i].retro);
+        }
+    }
+    if (pads->left_trigger > TRIGGER_THRESHOLD)
+    {
+        retropad_press(pad, RetroPadButton::l2);
+    }
+    if (pads->right_trigger > TRIGGER_THRESHOLD)
+    {
+        retropad_press(pad, RetroPadButton::r2);
+    }
+    pad->analog[0][0] = retropad_axis(pads->left_x);
+    pad->analog[0][1] = retropad_axis(pads->left_y);
+    pad->analog[1][0] = retropad_axis(pads->right_x);
+    pad->analog[1][1] = retropad_axis(pads->right_y);
 }

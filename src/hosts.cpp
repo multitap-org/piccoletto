@@ -7,6 +7,8 @@
 #include <SDL3/SDL_log.h>
 
 #include "net_pairing.h"
+#include "net_settings.h"
+#include "retropad.h"
 
 // Discovery: a broadcast (and a unicast to every paired host's last address,
 // for networks that drop broadcasts) this often; a host that stops answering
@@ -465,6 +467,21 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
     if (event->size > 0 && event->data[0] == NET_SPEED_REPORT && net_speed_read_report(event->data, event->size, &report))
     {
         speed_report(hosts, &report);
+        return;
+    }
+    // Where our pads play (asked when connected, pushed when it changes).
+    if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::controllers))
+    {
+        uint32_t id = 0;
+        NetControllers controllers;
+        if (net_settings_read_controllers(event->data, event->size, &id, &controllers))
+        {
+            if (controllers.pad_ports[0] != hosts->pad_port)
+            {
+                SDL_Log("Network: this phone's pad is on port %d", controllers.pad_ports[0] + 1);
+            }
+            hosts->pad_port = controllers.pad_ports[0];
+        }
     }
 }
 
@@ -506,6 +523,11 @@ void hosts_update(Hosts* hosts, double now)
             if (hosts->link == LinkStatus::ready)
             {
                 hosts->next_stats = 0.0;   // the first ping right away
+                hosts->pad_sender = NetRetroPadSender{};
+                hosts->pad_port = -1;
+                uint8_t request[16];
+                size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
+                net_client_send(&hosts->client, NetChannel::control, request, size);
                 const KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
                 if (event.access != NetAccessLevel::gamepad && !host->measured)
                 {
@@ -530,8 +552,14 @@ void hosts_update(Hosts* hosts, double now)
         case NetClientEventType::access:
             if (hosts->linked >= 0 && hosts->linked < static_cast<int32_t>(hosts->known.size()))
             {
-                hosts->known[static_cast<size_t>(hosts->linked)].access = event.access;
-                write_info(hosts, &hosts->known[static_cast<size_t>(hosts->linked)]);
+                KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
+                host->access = event.access;
+                write_info(hosts, host);
+                // Raised to STREAM while connected: measure now.
+                if (event.access != NetAccessLevel::gamepad && !host->measured && !hosts->speed.running)
+                {
+                    speed_start(hosts);
+                }
             }
             break;
         case NetClientEventType::refused:
@@ -725,6 +753,32 @@ void hosts_forget(Hosts* hosts, int32_t index)
         return;
     }
     forget_here(hosts, index);
+}
+
+void hosts_send_pad(Hosts* hosts, const RetroPad* pad)
+{
+    if (!hosts->ok || hosts->link != LinkStatus::ready)
+    {
+        return;
+    }
+    NetRetroPadState state;
+    state.buttons = pad->buttons;
+    for (int32_t stick = 0; stick < 2; stick++)
+    {
+        state.analog[stick][0] = pad->analog[stick][0];
+        state.analog[stick][1] = pad->analog[stick][1];
+    }
+    uint8_t packet[NET_INPUT_MAX_PACKET];
+    size_t size = net_input_push_retropad(&hosts->pad_sender, 0, &state, packet, sizeof(packet));
+    if (size > 0)
+    {
+        net_client_send(&hosts->client, NetChannel::input, packet, size);
+    }
+}
+
+int32_t hosts_pad_port(const Hosts* hosts)
+{
+    return hosts->link == LinkStatus::ready && hosts->pad_port >= 0 ? hosts->pad_port + 1 : 0;
 }
 
 LinkShown hosts_link_shown(const Hosts* hosts, uint32_t* ping_ms)

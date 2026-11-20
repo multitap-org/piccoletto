@@ -44,6 +44,12 @@ void real_gamepad_close(RealGamepad* pads);
 
 bool real_gamepad_connected(const RealGamepad* pads);
 
+struct RetroPad;
+
+// The real gamepads as a RetroPad, by position (SNES names: A right, B
+// bottom, X top, Y left; BACK is SELECT; triggers past half are L2 / R2).
+void real_gamepad_retropad(const RealGamepad* pads, RetroPad* pad);
+
 // A button (SDL_GamepadButton) down on any gamepad now / gone down since the last update.
 bool real_gamepad_held(const RealGamepad* pads, int32_t button);
 bool real_gamepad_pressed(const RealGamepad* pads, int32_t button);
