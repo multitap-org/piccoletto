@@ -6,6 +6,7 @@
 #include "imgui.h"
 
 #include "pixel_font_imgui.h"
+#include "shader_presets.h"
 
 // Layout, in retro pixels.
 constexpr float MARGIN        = 8.0f;
@@ -151,6 +152,17 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     if (pacing >= 0)
     {
         settings->pacing = static_cast<StreamPacing>(pacing);
+    }
+    y += CONTROL + ROW_GAP;
+
+    // Lightest first; - / + step through them.
+    y = label(ui, x, y, "REMOTE PLAY SHADER");
+    const char* shader_steps[3] = {"-", shader_preset(settings->shader)->label, "+"};
+    int32_t shader = choices(ui, "##shader", shader_steps, 3, 1, x, y, column);
+    if (shader == 0 || shader == 2)
+    {
+        int32_t count = shader_preset_count();
+        settings->shader = (settings->shader + (shader == 0 ? count - 1 : 1)) % count;
     }
     y += CONTROL + ROW_GAP;
 

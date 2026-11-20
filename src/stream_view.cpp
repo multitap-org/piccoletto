@@ -96,9 +96,34 @@ void stream_view_update(StreamView* view, Hosts* hosts, AppShell* shell)
     }
 }
 
+void stream_view_set_shader(StreamView* view, const ShaderLibrary* library, AppShell* shell, const char* preset_path)
+{
+    view->library = library;
+    if (library == nullptr || !library->loaded)
+    {
+        return;
+    }
+    ShaderStage* stage = &view->chain.stages[1];
+    if (preset_path[0] == '\0')
+    {
+        if (stage->chain != nullptr)
+        {
+            shader_chain_clear(&view->chain, library, &shell->vulkan, 1);
+        }
+        stage->failed_path.clear();
+        return;
+    }
+    if (stage->preset_path == preset_path || stage->failed_path == preset_path)
+    {
+        return;   // loaded, or it failed already (logged): not every frame
+    }
+    shader_chain_load(&view->chain, library, &shell->vulkan, 1, preset_path);
+}
+
 bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, float x, float y, float width, float height)
 {
     view->picture.ready = false;
+    view->use_chain = false;
     if (!view->has_picture || view->texture_id == 0 || !view->texture.has_content)
     {
         return false;
@@ -115,11 +140,23 @@ bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, floa
     input.scaling = ViewportScaling::full;
     input.filter = ViewportFilter::sharp_bilinear;
     ViewportResult viewport;
-    if (!viewport_compute(&input, &viewport) || !picture_prepare(&view->picture, &shell->vulkan, &view->texture, &viewport))
+    if (!viewport_compute(&input, &viewport))
     {
         return false;
     }
     const ImGuiViewport* screen = ImGui::GetMainViewport();
+    // A shader preset when there's one and it can run; else the picture as is.
+    if (view->library != nullptr && view->library->loaded && shader_chain_active(&view->chain) &&
+        shader_chain_prepare(&view->chain, &shell->vulkan, &view->texture, &viewport))
+    {
+        view->use_chain = true;
+        shader_chain_draw(&view->chain, ImGui::GetWindowDrawList(), screen->Pos.x + x * scale, screen->Pos.y + y * scale);
+        return true;
+    }
+    if (!picture_prepare(&view->picture, &shell->vulkan, &view->texture, &viewport))
+    {
+        return false;
+    }
     picture_draw(&view->picture, ImGui::GetWindowDrawList(), &view->texture, view->texture_id,
                  screen->Pos.x + x * scale, screen->Pos.y + y * scale);
     return true;
@@ -127,6 +164,11 @@ bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, floa
 
 void stream_view_record(StreamView* view, AppShell* shell)
 {
+    if (view->use_chain && view->chain.ready && app_shell_acquire(shell))
+    {
+        shader_chain_record(&view->chain, view->library, renderer_command_buffer(&shell->renderer), &view->texture);
+        return;
+    }
     if (view->picture.ready && app_shell_acquire(shell))
     {
         picture_record(&view->picture, renderer_command_buffer(&shell->renderer), &view->texture);
@@ -137,6 +179,8 @@ void stream_view_clear(StreamView* view)
 {
     view->has_picture = false;
     view->picture.ready = false;
+    view->use_chain = false;
+    view->chain.ready = false;
     view->info = NetStreamInfo{};
     view->width = 0;
     view->height = 0;
@@ -144,6 +188,10 @@ void stream_view_clear(StreamView* view)
 
 void stream_view_destroy(StreamView* view, AppShell* shell)
 {
+    if (view->library != nullptr && view->library->loaded)
+    {
+        shader_chain_destroy(&view->chain, view->library, &shell->vulkan);
+    }
     free_texture(view, shell);
     stream_view_clear(view);
 }

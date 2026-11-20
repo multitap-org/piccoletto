@@ -28,3 +28,12 @@
 [submodule "deps/monocypher"]
 	path = deps/monocypher
 	url = https://github.com/LoupVaillant/Monocypher.git
+[submodule "deps/librashader"]
+	path = deps/librashader
+	url = https://github.com/SnowflakePowered/librashader.git
+	shallow = true
+[submodule "deps/piccolo-shaders"]
+	path = deps/piccolo-shaders
+	url = https://github.com/multitap-org/piccolo-shaders.git
+	branch = piccolo
+	shallow = true

@@ -36,6 +36,7 @@ struct AppSettings
     bool          vibrate         = true;                     // a short buzz on every press
     float         overlay_opacity = 0.6f;                     // overlays' default; adjustable while streaming
     StreamPacing  pacing          = StreamPacing::balanced;   // REMOTE PLAY's latency against smoothness
+    int32_t       shader          = 0;                        // REMOTE PLAY's shader (shader_presets.h; 0 = none)
 };
 
 void app_settings_load(AppSettings* settings, const SettingsFile* file);
