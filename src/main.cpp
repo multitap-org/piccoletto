@@ -20,7 +20,7 @@
 #include "home_screen.h"
 #include "hosts.h"
 #include "host_fs.h"
-#include "menu_sheet.h"
+#include "quick_menu.h"
 #include "pad_editor.h"
 #include "pad_layouts.h"
 #include "pair_screen.h"
@@ -45,7 +45,9 @@ struct App
     AppShell       shell      = {};
     TouchUi        ui         = {};
     Screen         screen     = Screen::home;
-    bool           sheet_open = false;   // the ☰ sheet over GAMEPAD / REMOTE PLAY
+    bool           menu_open = false;   // the quick menu over GAMEPAD / REMOTE PLAY
+    QuickMenu      quick_menu = {};
+    double         start_held_since = 0.0;   // the pads: START held since (0 = not held; -1 = used, wait for release)
     bool           devices_open = false; // DEVICES over GAMEPAD / REMOTE PLAY (FULL access)
     HomeScreen     home       = {};
     PairScreen     pair       = {};
@@ -247,6 +249,23 @@ static void rotate(App* app)
 #endif
 }
 
+// The quick menu: SHADER / PACING picked in it are saved when it closes.
+static void close_menu(App* app)
+{
+    if (app->menu_open && app->quick_menu.settings_changed)
+    {
+        save_settings(app);
+        app->quick_menu.settings_changed = false;
+    }
+    app->menu_open = false;
+}
+
+static void open_menu(App* app)
+{
+    app->menu_open = true;
+    quick_menu_open(&app->quick_menu);
+}
+
 static void go_to(App* app, Screen screen)
 {
     if (app->screen == Screen::settings && screen != Screen::settings)
@@ -292,10 +311,10 @@ static void go_to(App* app, Screen screen)
         app->devices_open = false;   // (between GAMEPAD and REMOTE PLAY it stays open)
     }
     app->screen = screen;
-    app->sheet_open = false;
+    close_menu(app);
 }
 
-// What a tap on a screen (or the sheet) asked for.
+// What a tap on a screen (or the quick menu) asked for.
 static void handle_action(App* app, NavAction action)
 {
     switch (action)
@@ -308,7 +327,14 @@ static void handle_action(App* app, NavAction action)
         case NavAction::menu:
             if (app->screen == Screen::gamepad || app->screen == Screen::remote_play)
             {
-                app->sheet_open = !app->sheet_open;
+                if (app->menu_open)
+                {
+                    close_menu(app);
+                }
+                else
+                {
+                    open_menu(app);
+                }
             }
             else if (app->screen == Screen::home)
             {
@@ -316,7 +342,7 @@ static void handle_action(App* app, NavAction action)
             }
             break;
         case NavAction::rotate:
-            app->sheet_open = false;
+            close_menu(app);
             rotate(app);
             break;
         case NavAction::pair:
@@ -330,7 +356,7 @@ static void handle_action(App* app, NavAction action)
             break;
         case NavAction::devices:
             // From the sheet: open it (FULL access only); from DEVICES: close it.
-            app->sheet_open = false;
+            close_menu(app);
             app->devices_open = !app->devices_open && selected_full_access(app);
             app->devices = DevicesOverlay{};
             if (app->devices_open)
@@ -339,7 +365,7 @@ static void handle_action(App* app, NavAction action)
             }
             break;
         case NavAction::edit_layout:
-            app->sheet_open = false;
+            close_menu(app);
             app->editor.active = true;
             break;
         case NavAction::edit_done:
@@ -354,7 +380,7 @@ static void handle_action(App* app, NavAction action)
             break;
         case NavAction::touch_controls:
             app->touch_with_gamepad = !app->touch_with_gamepad;
-            app->sheet_open = false;
+            close_menu(app);
             break;
     }
 }
@@ -363,9 +389,9 @@ static void handle_action(App* app, NavAction action)
 // EDIT LAYOUT or HOME's sidebar, else goes back to HOME, else leaves the app.
 static void go_back(App* app)
 {
-    if (app->sheet_open)
+    if (app->menu_open)
     {
-        app->sheet_open = false;
+        close_menu(app);
     }
     else if (app->devices_open)
     {
@@ -417,6 +443,7 @@ static void handle_events(App* app)
 // move the focus, A presses, B goes back); on GAMEPAD and REMOTE PLAY the
 // gamepad plays, and holding BACK for a second goes to HOME.
 constexpr double BACK_HOLD_SECONDS = 1.0;
+constexpr double START_HOLD_SECONDS = 1.0;   // opens the quick menu
 
 static void update_gamepad_ui(App* app, double now)
 {
@@ -427,7 +454,7 @@ static void update_gamepad_ui(App* app, double now)
         ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, pads->open, pads->count);
         pads->changed = false;
     }
-    bool on_pad = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
+    bool on_pad = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->menu_open &&
                   !app->devices_open && !app->editor.active;
     ImGuiIO& io = ImGui::GetIO();
     if (on_pad)
@@ -448,12 +475,37 @@ static void update_gamepad_ui(App* app, double now)
             SDL_Log("BACK held: HOME");
             go_to(app, Screen::home);
         }
+        // Holding START opens the quick menu (START reaches the host
+        // meanwhile: the game may pause, which fits a menu opening).
+        bool start = real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_START);
+        if (!start)
+        {
+            app->start_held_since = 0.0;
+        }
+        else if (app->start_held_since == 0.0)
+        {
+            app->start_held_since = now;
+        }
+        else if (app->start_held_since > 0.0 && now - app->start_held_since >= START_HOLD_SECONDS)
+        {
+            app->start_held_since = -1.0;   // until it's let go
+            SDL_Log("START held: quick menu");
+            open_menu(app);
+        }
         return;
     }
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
     if (app->back_held_since < 0.0 && real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK))
     {
         return;   // the BACK that just left a pad: not a press here
+    }
+    if (app->start_held_since < 0.0)
+    {
+        if (real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_START))
+        {
+            return;   // the START that opened the quick menu: not a press here
+        }
+        app->start_held_since = 0.0;
     }
     app->back_held_since = 0.0;
     if (real_gamepad_pressed(pads, SDL_GAMEPAD_BUTTON_EAST) || real_gamepad_pressed(pads, SDL_GAMEPAD_BUTTON_BACK))
@@ -470,7 +522,7 @@ constexpr int32_t JOIN_START_FRAMES = 6;   // about 100 ms: a tap the host can't
 
 static void send_pad(App* app)
 {
-    bool playing = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->sheet_open &&
+    bool playing = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->menu_open &&
                    !app->devices_open && !app->editor.active;
     RetroPad pad;
     if (playing)
@@ -576,7 +628,7 @@ static void draw_screen(App* app)
     NavAction action = NavAction::none;
     int32_t forget = -1;
     // The pads take fingers only while nothing covers them.
-    bool covered = app->sheet_open || app->devices_open || (app->screen == Screen::home && app->home.sidebar_open);
+    bool covered = app->menu_open || app->devices_open || (app->screen == Screen::home && app->home.sidebar_open);
     app->ui.fingers = covered ? nullptr : &app->fingers;
     app->ui.gamepad = &app->gamepad;
     app->focus = TouchFocus{};
@@ -612,7 +664,7 @@ static void draw_screen(App* app)
             action = draw_pair(app);
             break;
         case Screen::gamepad:
-            action = gamepad_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), &link,
+            action = gamepad_screen_draw(&app->ui, hosts_pad_port(&app->hosts), &link,
                                          selected_full_access(app), &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
@@ -647,7 +699,7 @@ static void draw_screen(App* app)
         touch_ui_end_screen();
     }
     // DEVICES over the pads (the game shows through), in its own window.
-    if (app->devices_open && !app->sheet_open)
+    if (app->devices_open && !app->menu_open)
     {
         touch_ui_begin_overlay(&app->ui, "##devices_window");
         DevicesMove move;
@@ -682,12 +734,18 @@ static void draw_screen(App* app)
             hosts_move_device(&app->hosts, &app->hosts.devices[static_cast<size_t>(move.index)], move.port);
         }
     }
-    // The sheet in its own window above the screen: the screen behind takes no taps.
-    if (app->sheet_open)
+    // The quick menu in its own window above the screen: the screen behind takes no taps.
+    if (app->menu_open)
     {
-        touch_ui_begin_overlay(&app->ui, "##sheet_window");
-        action = menu_sheet_draw(&app->ui, app->screen, app->screen == Screen::remote_play && gamepad_connected, show_touch,
-                                 selected_full_access(app));
+        touch_ui_begin_overlay(&app->ui, "##quick_menu_window");
+        QuickMenuInput input;
+        input.current = app->screen;
+        input.host = selected_host(app);
+        input.online = app->hosts.link == LinkStatus::ready;
+        input.devices = selected_full_access(app);
+        input.touch_toggle = app->screen == Screen::remote_play && gamepad_connected;
+        input.touch_shown = show_touch;
+        action = quick_menu_draw(&app->quick_menu, &app->ui, &input, &app->settings);
         touch_ui_end_screen();
     }
     if (action != NavAction::none)

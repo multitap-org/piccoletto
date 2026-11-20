@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "pixel_font_imgui.h"
+#include "quick_menu.h"
 #include "title_bar.h"
 
 // The pad's layout (or its editor, while editing).
@@ -16,7 +17,7 @@ static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* l
     return NavAction::none;
 }
 
-NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port, const PadLink* link,
+NavAction gamepad_screen_draw(const TouchUi* ui, int32_t port, const PadLink* link,
                               bool full_access, PadLayouts* layouts, PadEditor* editor)
 {
     const RetroUiPalette* palette = &ui->palette;
@@ -30,19 +31,9 @@ NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port,
         pad_block(ui, &frame, 16, 196, 358, 632, palette->button_face);
         if (!editor->active)
         {
-            // Header: back, the host (online light), rotate, the sheet.
-            if (pad_button(ui, &frame, "##back", 12, 16, 48, 48, PIXEL_FONT_UTF8_ARROW_LEFT, TouchButton::plain, TouchText::big))
-            {
-                action = NavAction::home;
-            }
-            float name_y = touch_ui_centered_text_y(ui, pad_y(&frame, 16), pad_size(&frame, 48), TouchText::normal);
-            touch_ui_lamp(ui, pad_x(&frame, 68), name_y, TOUCH_UI_LAMP_ONLINE);
-            touch_ui_text(ui, pad_x(&frame, 68) + TOUCH_UI_LAMP + 5.0f, name_y, host, palette->text_highlight, TouchText::normal);
-            if (pad_button(ui, &frame, "##rotate", 282, 16, 48, 48, PIXEL_FONT_UTF8_ROTATE, TouchButton::plain, TouchText::big))
-            {
-                action = NavAction::rotate;
-            }
-            if (pad_button(ui, &frame, "##menu", 330, 16, 48, 48, PIXEL_FONT_UTF8_MENU, TouchButton::plain, TouchText::big))
+            // No title bar: the quick menu's arrow (the host is in the menu).
+            title_bar_pad_status(ui, port, link, palette->text_highlight);
+            if (quick_menu_arrow(ui))
             {
                 action = NavAction::menu;
             }
@@ -57,14 +48,12 @@ NavAction gamepad_screen_draw(const TouchUi* ui, const char* host, int32_t port,
     PadFrame frame = pad_frame_fit_bottom(ui, layout->width, layout->height);
     if (!editor->active)
     {
-        // The title bar's back arrow and icons where HOME has them (+ off here).
-        action = title_bar_icons(ui, false, 0);
-        if (title_bar_back(ui))
-        {
-            action = NavAction::home;
-        }
-        title_bar_host(ui, host, palette->text_highlight);
+        // No title bar: the quick menu's arrow; the port and the ping at the bottom left.
         title_bar_pad_status(ui, port, link, palette->text_highlight);
+        if (quick_menu_arrow(ui))
+        {
+            action = NavAction::menu;
+        }
     }
     NavAction pad = draw_pad(ui, &frame, layout, editor, full_access);
     return pad != NavAction::none ? pad : action;

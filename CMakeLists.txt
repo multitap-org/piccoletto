@@ -125,7 +125,7 @@ set(PICCOLETTO_SOURCES
     src/main.cpp
     src/touch_ui.cpp
     src/home_screen.cpp
-    src/menu_sheet.cpp
+    src/quick_menu.cpp
     src/pad_layout.cpp
     src/gamepad_screen.cpp
     src/remote_play_screen.cpp
