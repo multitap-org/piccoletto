@@ -9,6 +9,14 @@
 
 // `current`: the screen it's open over (its own switch isn't offered).
 // `touch_toggle`: offer SHOW / HIDE TOUCH CONTROLS (REMOTE PLAY with a real
-// gamepad), `touch_shown` says which. `devices`: offer DEVICES. Returns what
-// was picked; NavAction::menu = close the sheet.
-NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, bool touch_shown, bool devices);
+// gamepad), `touch_shown` says which. `devices`: offer DEVICES. `headless`:
+// GO HEADLESS's item (REMOTE PLAY while streaming), `host` names the host for
+// giving it back. Returns what was picked; NavAction::menu = close the sheet.
+enum class HeadlessItem
+{
+    none,
+    go,          // GO HEADLESS
+    give_back,   // PLAY ON <host>
+};
+NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, bool touch_shown, bool devices,
+                          HeadlessItem headless, const char* host);

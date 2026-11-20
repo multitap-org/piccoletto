@@ -131,6 +131,10 @@ struct Hosts
     bool                   tuning_wanted = false;
     NetStreamTuning        tuning_result;       // what the host applies (stream_tuning_result)
     bool                   has_tuning_result = false;
+    // GO HEADLESS (Andrés): this phone took the game, piccolo's window is
+    // hidden (headless_state). Ends with the stream or the connection.
+    bool                   headless_on = false;      // the host runs headless
+    bool                   headless_yours = false;   // ... for this phone
     // DEVICES (FULL access): who plays on the host's ports. Asked for once
     // (hosts_request_devices); the host sends the list again whenever it changes.
     bool                   devices_wanted = false;
@@ -213,6 +217,13 @@ void hosts_request_devices(Hosts* hosts);
 // Puts a device of the list on `port` (0..3) only; -1 = on none (it joins
 // again with START). The host sends the new list.
 void hosts_move_device(Hosts* hosts, const NetDevice* device, int8_t port);
+
+// GO HEADLESS: take the game (the host's window hides; needs STREAM and the
+// stream running) or give it back. The host answers with its state
+// (headless_on / headless_yours), also when it refused.
+void hosts_go_headless(Hosts* hosts, bool on);
+// Whether REMOTE PLAY's stream is running now (asked for and connected).
+bool hosts_streaming(const Hosts* hosts);
 
 // PAIR's progress line: still connecting (true) or checking the code.
 bool hosts_pair_connecting(Hosts* hosts);

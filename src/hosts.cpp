@@ -502,6 +502,23 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         }
         return;
     }
+    // GO HEADLESS: the host's state (the answer to ours, or a change on its side).
+    if (event->size > 0 && event->data[0] == NET_STREAM_HEADLESS_STATE)
+    {
+        bool on = false;
+        bool yours = false;
+        if (net_stream_read_headless_state(event->data, event->size, &on, &yours))
+        {
+            if (on != hosts->headless_on || yours != hosts->headless_yours)
+            {
+                SDL_Log("Network: the host %s", on ? (yours ? "is headless: this phone has the game" : "is headless for another device")
+                                                   : "shows its window again");
+            }
+            hosts->headless_on = on;
+            hosts->headless_yours = yours;
+        }
+        return;
+    }
     // DEVICES: who plays on the host's ports (asked for, then sent whenever it changes).
     if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::devices))
     {
@@ -610,6 +627,8 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->game_known = false;
                 hosts->devices_known = false;
                 hosts->devices.clear();
+                hosts->headless_on = false;
+                hosts->headless_yours = false;
                 send_devices_request(hosts);
                 if (hosts->stream_flags != 0)
                 {
@@ -699,6 +718,8 @@ static void update_locked(Hosts* hosts, double now)
             hosts->game_known = false;
             hosts->devices_known = false;
             hosts->devices.clear();
+            hosts->headless_on = false;
+            hosts->headless_yours = false;
             if (hosts->link == LinkStatus::ready)
             {
                 hosts->link = LinkStatus::failed;
@@ -1011,6 +1032,8 @@ void hosts_stream_stop(Hosts* hosts)
     }
     hosts->stream_flags = 0;
     hosts->has_tuning_result = false;
+    hosts->headless_yours = false;   // (the host comes back by itself when the stream stops)
+    hosts->headless_on = false;
     if (hosts->ok)
     {
         net_client_service_lock(&hosts->net);
@@ -1051,6 +1074,28 @@ void hosts_move_device(Hosts* hosts, const NetDevice* device, int8_t port)
         net_client_service_unlock(&hosts->net);
         SDL_Log("Network: %s to port %d", device->name.c_str(), port + 1);
     }
+}
+
+void hosts_go_headless(Hosts* hosts, bool on)
+{
+    if (!hosts_streaming(hosts))
+    {
+        return;
+    }
+    uint8_t message[4];
+    size_t size = net_stream_write_go_headless(message, sizeof(message), on);
+    if (size > 0)
+    {
+        net_client_service_lock(&hosts->net);
+        net_client_send(&hosts->net.client, NetChannel::control, message, size);
+        net_client_service_unlock(&hosts->net);
+        SDL_Log("Network: %s", on ? "GO HEADLESS asked for" : "giving the game back to the host");
+    }
+}
+
+bool hosts_streaming(const Hosts* hosts)
+{
+    return hosts->ok && hosts->link == LinkStatus::ready && hosts->stream_flags != 0;
 }
 
 void hosts_set_stream_tuning(Hosts* hosts, const NetStreamTuning* tuning)

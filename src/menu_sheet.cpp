@@ -1,5 +1,7 @@
 #include "menu_sheet.h"
 
+#include <cstdio>
+
 constexpr float SHEET_PADDING = 10.0f;
 constexpr float SHEET_BUTTON  = 28.0f;
 constexpr float SHEET_GAP     = 4.0f;
@@ -24,11 +26,14 @@ const char* nav_action_name(NavAction action)
         case NavAction::settings:    return "SETTINGS";
         case NavAction::touch_controls: return "TOUCH CONTROLS";
         case NavAction::measure:     return "MEASURE";
+        case NavAction::go_headless: return "GO HEADLESS";
+        case NavAction::play_on_host: return "PLAY ON THE HOST";
         default:                     return "?";
     }
 }
 
-NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, bool touch_shown, bool devices)
+NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, bool touch_shown, bool devices,
+                          HeadlessItem headless, const char* host)
 {
     float width = touch_ui_width(ui);
     float height = touch_ui_height(ui);
@@ -38,7 +43,8 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, 
     // first, then the sheet's and the outside's areas (drawn before them).
     touch_ui_rect(ui, 0.0f, 0.0f, width, height, DIM);
 
-    float button_count = 4.0f + (touch_toggle ? 1.0f : 0.0f) + (devices ? 1.0f : 0.0f);
+    float button_count = 4.0f + (touch_toggle ? 1.0f : 0.0f) + (devices ? 1.0f : 0.0f) +
+                         (headless != HeadlessItem::none ? 1.0f : 0.0f);
     float sheet_height = 2.0f * SHEET_PADDING + button_count * SHEET_BUTTON + (button_count - 1.0f) * SHEET_GAP;
     float sheet_width = SHEET_WIDTH < width - 16.0f ? SHEET_WIDTH : width - 16.0f;
     float x = (width - sheet_width) * 0.5f;
@@ -62,6 +68,24 @@ NavAction menu_sheet_draw(const TouchUi* ui, Screen current, bool touch_toggle, 
         picked = NavAction::edit_layout;
     }
     button_y += SHEET_BUTTON + SHEET_GAP;
+    if (headless != HeadlessItem::none)
+    {
+        char label[48];
+        if (headless == HeadlessItem::go)
+        {
+            std::snprintf(label, sizeof(label), "GO HEADLESS");
+        }
+        else
+        {
+            std::snprintf(label, sizeof(label), "PLAY ON %s", host);
+        }
+        if (touch_ui_button(ui, "##sheet_headless", button_x, button_y, button_width, SHEET_BUTTON, label,
+                            TouchButton::normal, TouchText::normal))
+        {
+            picked = headless == HeadlessItem::go ? NavAction::go_headless : NavAction::play_on_host;
+        }
+        button_y += SHEET_BUTTON + SHEET_GAP;
+    }
     if (devices)
     {
         if (touch_ui_button(ui, "##sheet_devices", button_x, button_y, button_width, SHEET_BUTTON, "DEVICES",

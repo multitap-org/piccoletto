@@ -352,6 +352,14 @@ static void handle_action(App* app, NavAction action)
         case NavAction::measure:
             hosts_measure(&app->hosts, app->home.selected);
             break;
+        case NavAction::go_headless:
+            app->sheet_open = false;
+            hosts_go_headless(&app->hosts, true);
+            break;
+        case NavAction::play_on_host:
+            app->sheet_open = false;
+            hosts_go_headless(&app->hosts, false);
+            break;
         case NavAction::touch_controls:
             app->touch_with_gamepad = !app->touch_with_gamepad;
             app->sheet_open = false;
@@ -596,6 +604,7 @@ static void draw_screen(App* app)
         link.kbps = app->stream_rates.kbps;
         link.lost = app->stream_rates.lost;
         link.audio_gaps = app->stream_rates.audio_gaps;
+        link.headless = app->hosts.headless_on && app->hosts.headless_yours;
         NetStreamTuning tuning;
         if (hosts_stream_tuning_result(&app->hosts, &tuning))
         {
@@ -686,8 +695,20 @@ static void draw_screen(App* app)
     if (app->sheet_open)
     {
         touch_ui_begin_overlay(&app->ui, "##sheet_window");
+        HeadlessItem headless = HeadlessItem::none;
+        if (app->screen == Screen::remote_play && hosts_streaming(&app->hosts))
+        {
+            if (!app->hosts.headless_on)
+            {
+                headless = HeadlessItem::go;
+            }
+            else if (app->hosts.headless_yours)
+            {
+                headless = HeadlessItem::give_back;
+            }
+        }
         action = menu_sheet_draw(&app->ui, app->screen, app->screen == Screen::remote_play && gamepad_connected, show_touch,
-                                 selected_full_access(app));
+                                 selected_full_access(app), headless, selected_host(app));
         touch_ui_end_screen();
     }
     if (action != NavAction::none)

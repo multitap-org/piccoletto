@@ -19,6 +19,8 @@ enum class NavAction
     settings,
     touch_controls,   // REMOTE PLAY with a real gamepad: show / hide the touch controls
     measure,          // HOME: speed-test the selected host now
+    go_headless,      // REMOTE PLAY: take the game (the host's window hides)
+    play_on_host,     // REMOTE PLAY: give it back (the host shows its window again)
 };
 
 enum class Screen
@@ -53,4 +55,5 @@ struct PadLink
     uint32_t  lost = 0;         // frames lost
     uint32_t  audio_gaps = 0;   // lost audio filled in
     int32_t   delay_ms = -1;    // the host's frame delay for the stream (-1 = not known)
+    bool      headless = false; // GO HEADLESS: this phone has the game
 };

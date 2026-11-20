@@ -138,6 +138,13 @@ static void ping_text(const PadLink* link, char* out, size_t capacity)
             size_t room = capacity - static_cast<size_t>(written);
             int more = std::snprintf(rest, room, " · %u FPS %.1f MBPS", static_cast<unsigned>(link->fps),
                                      static_cast<double>(link->kbps) / 1000.0);
+            // GO HEADLESS: the host's window is hidden, the game is here.
+            if (more > 0 && static_cast<size_t>(more) < room && link->headless)
+            {
+                rest += more;
+                room -= static_cast<size_t>(more);
+                more = std::snprintf(rest, room, " · HEADLESS");
+            }
             // The host's frame delay for this stream (stream_tuning), when it said.
             if (more > 0 && static_cast<size_t>(more) < room && link->delay_ms >= 0)
             {

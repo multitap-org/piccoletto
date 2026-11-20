@@ -57,6 +57,7 @@ struct Pump
     uint32_t         stream_peer = 0;
     uint8_t          stream_flags = 0;
     NetStreamDelay   tuning_asked = NetStreamDelay::host;   // the last stream_tuning's delay mode
+    bool             headless = false;   // GO HEADLESS granted
     std::vector<NetDevice> devices;     // as piccolo's list: who plays on its ports
     uint32_t         devices_requests = 0;
 };
@@ -228,6 +229,18 @@ static void pump_once(Pump* pump)
                     }
                 }
                 host_send_devices(pump, event.peer, 0);
+            }
+        }
+        else if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_STREAM_GO_HEADLESS)
+        {
+            // As piccolo: granted while streaming, the state back.
+            bool on = false;
+            if (net_stream_read_go_headless(event.data, event.size, &on))
+            {
+                pump->headless = on && pump->streaming;
+                uint8_t out[4];
+                size_t size = net_stream_write_headless_state(out, sizeof(out), pump->headless, pump->headless);
+                net_access_send(pump->access, event.peer, NetChannel::control, out, size);
             }
         }
         else if (event.channel == NetChannel::control && event.size > 0 && event.data[0] == NET_STREAM_TUNING)
@@ -477,6 +490,22 @@ int main(int argc, char** argv)
     check(pump.tuning_asked == NetStreamDelay::automatic && hosts_stream_tuning_result(hosts, &applied) &&
               applied.delay_ms == 7,
           "stream_tuning asked for AUTO; the host's 7 ms read back");
+    // GO HEADLESS while streaming: granted, then given back.
+    check(hosts_streaming(hosts), "streaming");
+    hosts_go_headless(hosts, true);
+    double headless_end = now_seconds() + 5.0;
+    while (now_seconds() < headless_end && !hosts->headless_on)
+    {
+        pump_once(&pump);
+    }
+    check(pump.headless && hosts->headless_on && hosts->headless_yours, "GO HEADLESS: the host's state, this phone's");
+    hosts_go_headless(hosts, false);
+    headless_end = now_seconds() + 5.0;
+    while (now_seconds() < headless_end && hosts->headless_on)
+    {
+        pump_once(&pump);
+    }
+    check(!pump.headless && !hosts->headless_on, "GO HEADLESS: given back");
     NetClientStreamStats stream_stats;
     hosts_stream_stats(hosts, &stream_stats);
     check(stream_stats.frames >= 9 && stream_stats.audio_samples >= 9 * 64, "frames and audio counted");
