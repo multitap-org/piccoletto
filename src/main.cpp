@@ -41,6 +41,8 @@
 #include "screens.h"
 #include "settings_file.h"
 #include "settings_screen.h"
+#include "shader_check.h"
+#include "shader_check_view.h"
 #include "shader_presets.h"
 #include "stream_view.h"
 #include "touch_fingers.h"
@@ -68,6 +70,14 @@ struct App
     ShaderLibrary  shader_library = {};   // librashader, when it's there (REMOTE PLAY SHADER)
     std::string    presets_dir;           // the GPU path's presets: shaders/presets (Vulkan) or shaders/gl
     int32_t        shader_applied = -1;   // the preset index stream_view has (-1 = none asked yet)
+    // A preset just applied that's too slow for this phone asks KEEP / REVERT
+    // (frontends-common's shader_check, retroui's sheet). REVERT goes back to
+    // the last preset that was fine (`shader_kept`: the one before the first
+    // of a run of changes).
+    ShaderCheck    shader_check = {};
+    uint64_t       shader_check_asked_ms = 0;
+    int32_t        shader_kept = 0;
+    bool           shader_reverted = false;   // the next change is REVERT's: not checked again
     std::string    shader_path;           // its file
     NetClientStreamStats stream_last = {};   // the stream's counts a second ago
     double         stream_sampled = 0.0;     // when they were taken
@@ -659,6 +669,44 @@ static std::vector<NetDevice>* ports_list(App* app, bool* known)
     return example;
 }
 
+// The display's refresh: what a frame drawn with a preset must keep up with
+// (60 when SDL doesn't know).
+static double display_hz(App* app)
+{
+    const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(app->shell.window));
+    return mode != nullptr && mode->refresh_rate > 1.0f ? static_cast<double>(mode->refresh_rate) : 60.0;
+}
+
+// Every frame in REMOTE PLAY: one loop for the slow shader check, a sample
+// only while the stream's picture is drawn (not while connecting or waiting).
+static void measure_shader_check(App* app, bool drawing)
+{
+    double hz = display_hz(app);
+    if (shader_check_loop(&app->shader_check, drawing, SDL_GetTicksNS(), 1e9 / hz))
+    {
+        app->shader_check_asked_ms = SDL_GetTicks();
+        SDL_Log("Shader preset too slow: %.1f fps, target %.1f", 1e9 / app->shader_check.measured_ns, hz);
+    }
+}
+
+// KEEP: the preset stays (and becomes the one to go back to). REVERT: the
+// last preset that was fine, saved.
+static void shader_check_answer(App* app, ShaderCheckChoice choice)
+{
+    shader_check_stop(&app->shader_check);
+    if (choice == ShaderCheckChoice::revert)
+    {
+        app->settings.shader = app->shader_kept;
+        app->shader_reverted = true;
+        save_settings(app);
+        SDL_Log("Shader preset too slow: reverted");
+    }
+    else
+    {
+        app->shader_kept = app->settings.shader;
+    }
+}
+
 static void draw_screen(App* app)
 {
     NavAction action = NavAction::none;
@@ -800,6 +848,19 @@ static void draw_screen(App* app)
         action = quick_menu_draw(&app->quick_menu, &app->ui, &input, &app->settings);
         touch_ui_end_screen();
     }
+    // A preset too slow for this phone: KEEP / REVERT above everything (the
+    // quick menu too: the preset may have been stepped to from it).
+    if (app->screen == Screen::remote_play && app->shader_check.state == ShaderCheckState::asking)
+    {
+        ShaderCheckText words;   // (piccoletto's UI is English for now)
+        const char* name = shader_preset(app->settings.shader_gl, app->settings.shader)->label;
+        ShaderCheckChoice answer = shader_check_view_draw_sheet(&app->ui, &words, name, 1e9 / app->shader_check.measured_ns,
+                                                                display_hz(app), app->shader_check_asked_ms, SDL_GetTicks());
+        if (answer != ShaderCheckChoice::none)
+        {
+            shader_check_answer(app, answer);
+        }
+    }
     if (action != NavAction::none)
     {
         SDL_Log("%s on %s", nav_action_name(action), selected_host(app));
@@ -864,18 +925,38 @@ static void update_stream(App* app)
     apply_pacing(app);
     if (app->screen != Screen::remote_play)
     {
+        if (app->shader_check.state == ShaderCheckState::asking)
+        {
+            shader_check_answer(app, ShaderCheckChoice::revert);   // left without answering: the safe choice
+        }
+        app->shader_check.last_ns = 0;   // (the next loop in REMOTE PLAY isn't a sample)
         return;
     }
     StreamView* view = &app->stream_view;
     // The shader preset: loaded only when the choice changes (it waits for the GPU).
     if (app->settings.shader != app->shader_applied)
     {
+        // A change (not the first load): measure the new preset; NONE needs no check.
+        if (app->shader_applied >= 0 && app->settings.shader != 0 && !app->shader_reverted)
+        {
+            if (app->shader_check.state == ShaderCheckState::idle)
+            {
+                app->shader_kept = app->shader_applied;
+            }
+            shader_check_start(&app->shader_check);
+        }
+        else
+        {
+            shader_check_stop(&app->shader_check);
+        }
+        app->shader_reverted = false;
         app->shader_applied = app->settings.shader;
         const ShaderPreset* preset = shader_preset(app->settings.shader_gl, app->settings.shader);
         app->shader_path = preset->key[0] != '\0' ? app->presets_dir + "/" + preset->key : std::string();
         stream_view_set_shader(view, &app->shader_library, &app->shell, app->shader_path.c_str());
     }
     stream_view_update(view, &app->hosts, &app->shell);
+    measure_shader_check(app, view->has_picture);
     // The last second's rates, for the status line.
     double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
     if (now - app->stream_sampled >= 1.0)
