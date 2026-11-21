@@ -1101,10 +1101,6 @@ int main(int argc, char** argv)
     config.window_width  = landscape ? 900 : 420;
     config.window_height = landscape ? 420 : 900;
 
-    // Devices SDL would take for gamepads that aren't: Android TV's
-    // "virtual-search" (the remote's search key; Google 18d1:0100), on the SHIELD.
-    SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES, "0x18D1/0x0100");
-
     if (!pixel_font_init())
     {
         delete app;

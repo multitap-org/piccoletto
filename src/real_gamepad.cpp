@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "input_sdl.h"
 #include "retropad.h"
 
 // A trigger counts as pressed past half way; the sticks go to the host as they are.
@@ -26,9 +27,12 @@ static void add(RealGamepad* pads, SDL_JoystickID id)
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Can't open gamepad %u: %s", static_cast<unsigned>(id), SDL_GetError());
         return;
     }
-    if (!SDL_GamepadHasButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH) || !SDL_GamepadHasButton(gamepad, SDL_GAMEPAD_BUTTON_EAST))
+    // The same tests as piccolo's router (frontends-common's input_sdl).
+    bool no_face_buttons = !input_sdl_has_face_buttons(gamepad);
+    if (no_face_buttons || input_sdl_axes_pinned(gamepad))
     {
-        SDL_Log("Not a gamepad (no face buttons), left out: %s", SDL_GetGamepadName(gamepad));
+        SDL_Log("Not a gamepad (%s), left out: %s", no_face_buttons ? "no face buttons" : "its axes are pinned",
+                SDL_GetGamepadName(gamepad));
         SDL_CloseGamepad(gamepad);
         return;
     }
