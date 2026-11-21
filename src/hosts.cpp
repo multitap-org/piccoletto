@@ -185,6 +185,11 @@ void hosts_destroy(Hosts* hosts)
     net_client_close(&hosts->net.client);
     net_client_service_unlock(&hosts->net);
     net_client_service_stop(&hosts->net);
+    if (hosts->resolve.thread != nullptr)
+    {
+        SDL_WaitThread(hosts->resolve.thread, nullptr);   // DNS can't be interrupted: at most its timeout
+        hosts->resolve.thread = nullptr;
+    }
     if (hosts->lan)
     {
         net_host_destroy(&hosts->discovery);
@@ -633,10 +638,84 @@ static void use_beacon(Hosts* hosts, const std::string& beacon)
     net_client_set_signal(&hosts->net.client, url.c_str(), stun.c_str());
 }
 
+// --- the beacon's addresses (UDP hole punching; not in a browser) -------------------
+
+static int SDLCALL resolve_thread(void* data)
+{
+    HostsResolve* resolve = static_cast<HostsResolve*>(data);
+    resolve->count = net_address_resolve(resolve->name, NET_BEACON_DEFAULT_PORT, resolve->servers);
+    SDL_SetAtomicInt(&resolve->done, 1);
+    return 0;
+}
+
+// The connection is in use: running, or a beacon lookup hasn't ended (even
+// one nobody wants any more: the next connection waits for it).
+static bool client_busy(const Hosts* hosts)
+{
+    return hosts->net.client.state != NetClientState::idle || hosts->resolve.thread != nullptr;
+}
+
+// Starts looking up `beacon` ("" = the default one); resolve_done goes on.
+// False if the last lookup hasn't ended (even if nobody wants it any more).
+static bool resolve_start(Hosts* hosts, const std::string& beacon)
+{
+    HostsResolve* resolve = &hosts->resolve;
+    if (resolve->thread != nullptr)
+    {
+        return false;
+    }
+    const char* name = beacon.empty() ? NET_BEACON_DEFAULT_SERVER : beacon.c_str();
+    std::snprintf(resolve->name, sizeof(resolve->name), "%s", name);
+    resolve->count = 0;
+    resolve->cancelled = false;
+    SDL_SetAtomicInt(&resolve->done, 0);
+    resolve->thread = SDL_CreateThread(resolve_thread, "piccoletto beacon lookup", resolve);
+    return resolve->thread != nullptr;
+}
+
+// The lookup ended: pair or connect through the beacon if still wanted (UDP
+// with the addresses found, else WebRTC through its signaling).
+static void resolve_done(Hosts* hosts)
+{
+    HostsResolve* resolve = &hosts->resolve;
+    if (resolve->thread == nullptr || SDL_GetAtomicInt(&resolve->done) == 0)
+    {
+        return;
+    }
+    SDL_WaitThread(resolve->thread, nullptr);
+    resolve->thread = nullptr;
+    if (resolve->cancelled)
+    {
+        return;
+    }
+    NetClient* client = &hosts->net.client;
+    bool started = resolve->pairing ?
+                       net_client_pair_beacon(client, resolve->servers, resolve->count, resolve->key, resolve->code) :
+                       net_client_connect_beacon(client, resolve->servers, resolve->count,
+                                                 static_cast<uint32_t>(resolve->index));
+    SDL_Log("Network: %s through %s (%u address(es))%s", resolve->pairing ? "pairing" : "connecting", resolve->name,
+            static_cast<unsigned>(resolve->count), started ? "" : ": couldn't start");
+    if (started)
+    {
+        return;
+    }
+    hosts->refusal = NetClientRefusal::beacon_unreachable;
+    if (resolve->pairing && hosts->pair == PairStatus::busy)
+    {
+        hosts->pair = PairStatus::failed;
+    }
+    if (!resolve->pairing && hosts->link == LinkStatus::connecting)
+    {
+        hosts->link = LinkStatus::failed;
+        hosts->measure_wanted = false;
+        hosts->measure_only = false;
+    }
+}
+
 // Connects to the known host `index` as an already paired device: on the
 // LAN when it's there (answering discovery, or never met across the
-// internet), else through its beacon. No beacon addresses are passed (UDP
-// hole punching needs them resolved): WebRTC through the signaling.
+// internet), else through its beacon: its addresses looked up first (UDP
+// hole punching, then WebRTC); in a browser WebRTC through the signaling.
 static bool start_connect(Hosts* hosts, int32_t index)
 {
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
@@ -647,12 +726,23 @@ static bool start_connect(Hosts* hosts, int32_t index)
     }
     hosts->connecting_to = NetAddress{};
     use_beacon(hosts, host->beacon);
+    if (hosts->lan)
+    {
+        if (!resolve_start(hosts, host->beacon))
+        {
+            return false;
+        }
+        hosts->resolve.pairing = false;
+        hosts->resolve.index = index;
+        return true;
+    }
     return net_client_connect_beacon(&hosts->net.client, nullptr, 0, static_cast<uint32_t>(index));
 }
 
 static void update_locked(Hosts* hosts, double now)
 {
     discover(hosts, now);
+    resolve_done(hosts);
     NetClientEvent event;
     while (net_client_service_next(&hosts->net, &event))
     {
@@ -795,7 +885,7 @@ static void update_locked(Hosts* hosts, double now)
             break;
         }
     }
-    if (hosts->connect_pending && hosts->net.client.state == NetClientState::idle)
+    if (hosts->connect_pending && !client_busy(hosts))
     {
         hosts->connect_pending = false;
         if (hosts->linked < 0 || hosts->linked >= static_cast<int32_t>(hosts->known.size()) ||
@@ -859,12 +949,24 @@ static bool pair_link_locked(Hosts* hosts, const char* link, const char* code)
 {
     uint8_t key[NET_KEY_SIZE];
     std::string beacon;
-    if (!hosts->ok || hosts->net.client.state != NetClientState::idle || !net_pair_link_parse(link, key, &beacon))
+    if (!hosts->ok || client_busy(hosts) || code == nullptr || !net_pair_code_valid(code) ||
+        !net_pair_link_parse(link, key, &beacon))
     {
         return false;
     }
     use_beacon(hosts, beacon);
-    if (!net_client_pair_beacon(&hosts->net.client, nullptr, 0, key, code))
+    if (hosts->lan)
+    {
+        // Its addresses first (hosts_update pairs once they're found).
+        if (!resolve_start(hosts, beacon))
+        {
+            return false;
+        }
+        hosts->resolve.pairing = true;
+        std::memcpy(hosts->resolve.key, key, NET_KEY_SIZE);
+        std::snprintf(hosts->resolve.code, sizeof(hosts->resolve.code), "%s", code);
+    }
+    else if (!net_client_pair_beacon(&hosts->net.client, nullptr, 0, key, code))
     {
         return false;
     }
@@ -886,7 +988,7 @@ bool hosts_is_pair_link(const char* text)
 
 static bool pair_locked(Hosts* hosts, NetAddress address, const char* code)
 {
-    if (!hosts->ok || hosts->net.client.state != NetClientState::idle)
+    if (!hosts->ok || client_busy(hosts))
     {
         return false;
     }
@@ -923,7 +1025,7 @@ static bool connect_locked(Hosts* hosts, int32_t index)
     hosts->refusal = NetClientRefusal::none;
     // The last connection may still be closing (HOME, then a mode right
     // away): then hosts_update connects once it's gone.
-    hosts->connect_pending = hosts->net.client.state != NetClientState::idle;
+    hosts->connect_pending = client_busy(hosts);
     if (!hosts->connect_pending && !start_connect(hosts, index))
     {
         hosts->link = LinkStatus::failed;
@@ -940,6 +1042,7 @@ void hosts_disconnect(Hosts* hosts)
         net_client_service_lock(&hosts->net);
         net_client_service_set_stream(&hosts->net, 0);   // stream_stop first; the picture and audio go
         net_client_close(&hosts->net.client);
+        hosts->resolve.cancelled = true;   // a lookup still running is dropped when it ends
         net_client_service_unlock(&hosts->net);
     }
     hosts->speed.running = false;
@@ -1294,6 +1397,12 @@ const char* hosts_pair_failure_text(const Hosts* hosts)
     {
         return "REMOVE THIS PHONE ON IT FIRST";
     }
+    if (hosts->refusal == NetClientRefusal::host_offline)
+    {
+        // Pairing with a link: the beacon's pairing room exists only while
+        // the host shows its code.
+        return "OPEN PAIR A DEVICE ON IT FIRST";
+    }
     return hosts_refusal_text(hosts->refusal);
 }
 
@@ -1307,7 +1416,7 @@ const char* hosts_refusal_text(NetClientRefusal refusal)
     case NetClientRefusal::wrong_code:     return "WRONG CODE";
     case NetClientRefusal::unknown_host:   return "NOT THE DEVICE YOU PAIRED WITH";
     case NetClientRefusal::connection:     return "CAN'T REACH IT";
-    // Across the internet (not used yet: piccoletto connects on the LAN).
+    // Across the internet (through the beacon).
     case NetClientRefusal::beacon_unreachable: return "NO ANSWER FROM THE INTERNET SERVER";
     case NetClientRefusal::host_offline:   return "IT ISN'T ONLINE";
     case NetClientRefusal::no_route:       return "COULDN'T CONNECT";

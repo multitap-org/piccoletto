@@ -40,6 +40,10 @@
 #include <string>
 #include <vector>
 
+#include <SDL3/SDL_atomic.h>
+#include <SDL3/SDL_thread.h>
+
+#include "net_beacon.h"
 #include "net_client_service.h"
 #include "net_content.h"
 #include "net_host.h"
@@ -78,6 +82,23 @@ struct HostsSpeedTest
     double            asked_at = 0.0;       // a report that never comes ends the test
     NetSpeedReceiver  receiver;             // down
     NetSpeedSender    sender;               // up
+};
+
+// Outside the browser: a beacon's name to its addresses for UDP hole
+// punching (DNS blocks: on its own thread), then what waits for them:
+// pairing with a link or connecting to the known host `index`.
+struct HostsResolve
+{
+    SDL_Thread*   thread = nullptr;
+    SDL_AtomicInt done = {};
+    char          name[256] = {};
+    NetAddress    servers[NET_BEACON_MAX_SERVERS];
+    uint32_t      count = 0;
+    bool          cancelled = false;        // nobody wants it any more: dropped when it ends
+    bool          pairing = false;          // else connecting to `index`
+    uint8_t       key[NET_KEY_SIZE] = {};   // pairing: the link's host key
+    char          code[8] = {};             // pairing: the 6 digits
+    int32_t       index = -1;               // connecting: the known host
 };
 
 struct FoundHost
@@ -124,6 +145,7 @@ struct Hosts
     int32_t                linked = -1;         // the known host connecting / connected
     NetAddress             connecting_to;       // the address of the connection running (kept when it's ready)
     bool                   connect_pending = false;     // `linked` is connected to once the last connection has closed
+    HostsResolve           resolve;             // the beacon being looked up (not in a browser)
     HostsSpeedTest         speed;
     bool                   has_stats = false;   // `stats` is the ready connection's
     NetLinkStats           stats;

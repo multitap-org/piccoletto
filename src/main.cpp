@@ -443,6 +443,18 @@ static void go_back(App* app)
     }
 }
 
+// PAIR with `link` (a pair link) in the address field: the code is all
+// that's left to type.
+static void open_pair_link(App* app, const char* link)
+{
+    if (app->screen != Screen::pair)
+    {
+        go_to(app, Screen::pair);
+    }
+    pair_screen_set_address(&app->pair, link);
+    pair_screen_reset(&app->pair);
+}
+
 static void handle_events(App* app)
 {
     SDL_Event event;
@@ -456,6 +468,14 @@ static void handle_events(App* app)
         if (event.type == SDL_EVENT_QUIT)
         {
             app->running = false;
+        }
+        // A pair link handed to the app while it runs (Android: the site's
+        // /pair page opening piccoletto://pair, PiccolettoActivity; the
+        // desktop: text dropped on the window): PAIR with it filled in.
+        if ((event.type == SDL_EVENT_DROP_TEXT || event.type == SDL_EVENT_DROP_FILE) && event.drop.data != nullptr &&
+            hosts_is_pair_link(event.drop.data))
+        {
+            open_pair_link(app, event.drop.data);
         }
         // Escape in a text field is the field's (it stops editing).
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
@@ -1135,13 +1155,21 @@ int main(int argc, char** argv)
             open_devices = true;
             i++;
         }
+        else if (SDL_strcmp(argv[i], "--pair-link") == 0 && i + 1 < argc && hosts_is_pair_link(argv[i + 1]))
+        {
+            // Opened with a pair link (Android: piccoletto://pair from the
+            // site's /pair page): PAIR with it filled in.
+            pair_screen_set_address(&app->pair, argv[i + 1]);
+            first = Screen::pair;
+            i++;
+        }
         else if (SDL_strcmp(argv[i], "--aspect") == 0 && i + 1 < argc && parse_aspect(argv[i + 1], &app->stream))
         {
             i++;
         }
         else
         {
-            SDL_Log("Usage: piccoletto [--screen home|pair|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit]");
+            SDL_Log("Usage: piccoletto [--screen home|pair|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK]");
         }
     }
 

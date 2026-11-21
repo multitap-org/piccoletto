@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include <SDL3/SDL_clipboard.h>
+
 #include "imgui.h"
 
 #include "pixel_font_imgui.h"
@@ -15,6 +17,7 @@ constexpr float GAP           = 4.0f;
 constexpr float CODE_HEIGHT   = 32.0f;
 constexpr float KEY_HEIGHT    = 36.0f;
 constexpr float SELECTED_EDGE = 2.0f;
+constexpr float PASTE_WIDTH   = 48.0f;
 
 static const char* const KEYS[12] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", PIXEL_FONT_UTF8_ARROW_LEFT, "0", "OK"};
 
@@ -89,8 +92,21 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
     }
     if (pair->typing_address)
     {
-        address_field(pair, ui, x, y, width);
-        touch_ui_outline(ui, x, y, width, ROW_HEIGHT, SELECTED_EDGE, ui->palette.highlight);   // the picked row
+        // PASTE beside the field: ImGui's field has no long press to paste
+        // on a phone, and a pair link is too long to type.
+        float field_width = width - PASTE_WIDTH - GAP;
+        address_field(pair, ui, x, y, field_width);
+        touch_ui_outline(ui, x, y, field_width, ROW_HEIGHT, SELECTED_EDGE, ui->palette.highlight);   // the picked row
+        if (touch_ui_button(ui, "##paste", x + field_width + GAP, y, PASTE_WIDTH, ROW_HEIGHT, "PASTE", TouchButton::ghost,
+                            TouchText::normal))
+        {
+            char* text = SDL_GetClipboardText();
+            if (text != nullptr && text[0] != '\0')
+            {
+                pair_screen_set_address(pair, text);
+            }
+            SDL_free(text);
+        }
         return y + ROW_HEIGHT + GAP;
     }
     char address_label[64];
