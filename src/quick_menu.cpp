@@ -45,6 +45,7 @@ const char* nav_action_name(NavAction action)
         case NavAction::measure:     return "MEASURE";
         case NavAction::go_headless: return "GO HEADLESS";
         case NavAction::play_on_host: return "PLAY ON THE HOST";
+        case NavAction::pause:       return "PAUSE";
         default:                     return "?";
     }
 }
@@ -139,9 +140,14 @@ NavAction quick_menu_draw(QuickMenu* menu, const TouchUi* ui, const QuickMenuInp
     }
 
     // The rest: two columns in landscape (it has to fit 195 retro pixels), one in portrait.
-    const char* labels[5] = {};
-    NavAction actions[5] = {};
+    const char* labels[6] = {};
+    NavAction actions[6] = {};
     int32_t count = 0;
+    if (input->pause)
+    {
+        labels[count] = input->paused ? "RESUME" : "PAUSE";
+        actions[count++] = NavAction::pause;
+    }
     labels[count] = "EDIT LAYOUT";
     actions[count++] = NavAction::edit_layout;
     char play_on[48];

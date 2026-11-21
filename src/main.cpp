@@ -268,6 +268,66 @@ static void rotate(App* app)
 }
 
 // The quick menu: SHADER / PACING picked in it are saved when it closes.
+// The host's game is paused (GAMEPAD / REMOTE PLAY): a strip at the top
+// says so and why, since the phone's START only reaches the game, never
+// the host's menus (Andrés, 2026-11-21). USER alone: RESUME in the quick
+// menu lifts it; the others only the host lifts. Drawn in the screen, not
+// a window: the pads under it keep their taps.
+static void draw_pause_banner(App* app)
+{
+    uint32_t causes = 0;
+    if (!hosts_pause(&app->hosts, &causes) || causes == 0)
+    {
+        return;
+    }
+    const char* why = "";
+    if ((causes & NET_PAUSE_MENU) != 0)
+    {
+        why = "MENU";
+    }
+    else if ((causes & NET_PAUSE_FOCUS) != 0)
+    {
+        why = "FOCUS LOST";
+    }
+    else if ((causes & NET_PAUSE_CONTROLLERS) != 0)
+    {
+        why = "NO CONTROLLERS";
+    }
+    else if ((causes & NET_PAUSE_BACKGROUND) != 0)
+    {
+        why = "IN THE BACKGROUND";
+    }
+    float width = touch_ui_width(&app->ui);
+    char text[128];
+    if (why[0] != '\0')
+    {
+        std::snprintf(text, sizeof(text), "PAUSED ON %s: %s", selected_host(app), why);
+    }
+    else
+    {
+        std::snprintf(text, sizeof(text), "PAUSED ON %s", selected_host(app));
+    }
+    // A long host name: the cause matters more than the name.
+    constexpr float MARGIN = 30.0f;   // clear of the quick menu's arrow at the top right
+    if (touch_ui_text_width(&app->ui, text, TouchText::normal) > width - 2.0f * MARGIN)
+    {
+        if (why[0] != '\0')
+        {
+            std::snprintf(text, sizeof(text), "PAUSED: %s", why);
+        }
+        else
+        {
+            std::snprintf(text, sizeof(text), "PAUSED");
+        }
+    }
+    float text_width = touch_ui_text_width(&app->ui, text, TouchText::normal);
+    float text_height = touch_ui_text_height(&app->ui, TouchText::normal);
+    float x = (width - text_width) / 2.0f;
+    float y = 6.0f;
+    touch_ui_rect(&app->ui, x - 4.0f, y - 2.0f, text_width + 8.0f, text_height + 4.0f, 0xB0000000u);
+    touch_ui_text(&app->ui, x, y, text, app->ui.palette.text, TouchText::normal);
+}
+
 static void close_menu(App* app)
 {
     if (app->menu_open && app->quick_menu.settings_changed)
@@ -409,6 +469,10 @@ static void handle_action(App* app, NavAction action)
         case NavAction::touch_controls:
             app->touch_with_gamepad = !app->touch_with_gamepad;
             close_menu(app);
+            break;
+        case NavAction::pause:
+            close_menu(app);
+            hosts_toggle_pause(&app->hosts);
             break;
     }
 }
@@ -798,6 +862,10 @@ static void draw_screen(App* app)
             break;
         }
     }
+    if ((app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->editor.active)
+    {
+        draw_pause_banner(app);
+    }
     touch_ui_end_screen();
     // The ports' tabs over the pads (any access level: read only), down
     // while the sheet or DEVICES covers them.
@@ -865,6 +933,9 @@ static void draw_screen(App* app)
                 input.headless = HeadlessItem::give_back;
             }
         }
+        uint32_t pause_causes = 0;
+        input.pause = hosts_pause(&app->hosts, &pause_causes);
+        input.paused = (pause_causes & NET_PAUSE_USER) != 0;
         action = quick_menu_draw(&app->quick_menu, &app->ui, &input, &app->settings);
         touch_ui_end_screen();
     }

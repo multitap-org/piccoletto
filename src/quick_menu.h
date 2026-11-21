@@ -4,8 +4,9 @@
 // mockup: https://claude.ai/artifact/53qEApFSH3rxkxRHUyHjJo): a sidebar that
 // slides in from the right. It replaces the pads' title bar and the old ☰
 // sheet: the host, switch to the other mode, REMOTE PLAY's SHADER and PACING,
-// EDIT LAYOUT, DEVICES (FULL access), SHOW / HIDE TOUCH CONTROLS (a real
-// gamepad in REMOTE PLAY), ROTATE, LEAVE. The screen behind is dimmed a
+// PAUSE / RESUME (the host's PAUSE, STREAM access), EDIT LAYOUT, DEVICES
+// (FULL access), SHOW / HIDE TOUCH CONTROLS (a real gamepad in REMOTE PLAY),
+// ROTATE, LEAVE. The screen behind is dimmed a
 // little and takes no taps; a tap outside, the › or B closes it.
 //
 // Opened by the see-through arrow at the top right (quick_menu_arrow, drawn
@@ -42,6 +43,8 @@ struct QuickMenuInput
     bool        touch_toggle = false;        // REMOTE PLAY with a real gamepad: SHOW / HIDE TOUCH CONTROLS
     bool        touch_shown = false;
     HeadlessItem headless = HeadlessItem::none;   // `host` names the host for giving it back
+    bool        pause = false;               // the host offers PAUSE (STREAM access, a game running)
+    bool        paused = false;              // ... and a player paused it (it reads RESUME)
 };
 
 // Starts it sliding in from the right.
