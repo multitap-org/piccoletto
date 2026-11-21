@@ -24,6 +24,13 @@
 // forgets this phone too); offline, only here. A host that unpairs us is
 // dropped from the list.
 //
+// Across the internet (Andrés: the same flow whatever the transport): a host
+// paired with its pair link (PAIR: the link it copies or shows as a QR, and
+// the code) or one that isn't on the LAN is met through its beacon:
+// net_client_connect_beacon, UDP hole punching first, then WebRTC through
+// the beacon's signaling. In a browser that's the only way (no LAN there:
+// no discovery, no ENet; WebRTC only).
+//
 // A discovered host is matched to a paired one by its last address: the
 // discovery reply has no key (a fingerprint in it would match after an
 // address change; to talk over with the netcode side). A host is "online"
@@ -48,7 +55,9 @@ struct KnownHost
 {
     uint8_t        key[NET_KEY_SIZE] = {};
     std::string    name;
-    NetAddress     address;                 // last seen; port 0 = never
+    NetAddress     address;                 // last seen on the LAN; port 0 = never
+    std::string    beacon;                  // its beacon ("" = the default one), for internet connections
+    bool           internet = false;        // paired or last connected across the internet
     NetAccessLevel access = NetAccessLevel::gamepad;
     bool           online = false;          // answering discovery now
     uint32_t       down_kbps = 0;           // last speed test: what got through, host -> phone (0 = never measured)
@@ -98,6 +107,8 @@ enum class LinkStatus
 struct Hosts
 {
     bool                   ok = false;          // networking runs (false: no identity, no socket)
+    bool                   lan = false;         // LAN discovery and ENet work here (not in a browser)
+    std::string            pair_beacon;         // the beacon of the pair link being paired with
     NetClientService       net;                 // the connection, on its thread (net.client under its lock)
     NetHost                discovery;           // our own client host for discovery replies
     std::vector<KnownHost> known;               // the same order as client.trust.devices
@@ -162,6 +173,11 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index);
 // Pair with the host at `address` with the code it shows. Progress in
 // hosts->pair. False if it can't start (another connection is running).
 bool hosts_pair(Hosts* hosts, NetAddress address, const char* code);
+// Pairs across the internet with the host a pair link names
+// (https://get-piccolo.app/pair#k=...) and the code it shows.
+bool hosts_pair_link(Hosts* hosts, const char* link, const char* code);
+// True when `text` is a pair link (PAIR's field takes an address or a link).
+bool hosts_is_pair_link(const char* text);
 // Connect to a paired host (entering GAMEPAD...) / leave it. The speed test
 // runs once it's ready (once per run for each host).
 bool hosts_connect(Hosts* hosts, int32_t index);

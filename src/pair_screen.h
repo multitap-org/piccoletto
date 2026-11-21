@@ -1,7 +1,8 @@
 #pragma once
 
-// PAIR A DEVICE: pick a host found on the network (or type its address),
-// then type the code it shows on its screen with the big keypad. The host
+// PAIR A DEVICE: pick a host found on the network (or type its address, or
+// paste its pair link: pairing across the internet), then type the code it
+// shows on its screen with the big keypad. The host
 // decides what this phone may do (on its side). While the app pairs, the
 // screen shows how it goes (or why it failed) under the code.
 // Portrait: all in one column; landscape: the keypad on the right.
@@ -13,7 +14,7 @@
 
 constexpr int32_t PAIR_CODE_LENGTH = 6;
 
-constexpr int32_t PAIR_ADDRESS_SIZE = 64;
+constexpr int32_t PAIR_ADDRESS_SIZE = 256;   // an address, or a pair link (~90 characters, more with a beacon)
 
 struct PairScreen
 {
@@ -21,7 +22,7 @@ struct PairScreen
     char    code[PAIR_CODE_LENGTH + 1] = {};      // digits typed so far
     int32_t length = 0;
     bool    typing_address = false;               // the address field instead of a found host
-    char    address[PAIR_ADDRESS_SIZE] = {};      // "192.168.1.20" or "192.168.1.20:55420"
+    char    address[PAIR_ADDRESS_SIZE] = {};      // "192.168.1.20", "192.168.1.20:55420" or a pair link
     bool    typed = false;                        // a key was tapped this frame (the app clears an old error)
 };
 
@@ -35,6 +36,10 @@ struct PairProgress
 
 // Clears the code (call when the screen opens).
 void pair_screen_reset(PairScreen* pair);
+
+// Opens the screen with the address field filled (a pair link the page was
+// opened with, in a browser).
+void pair_screen_set_address(PairScreen* pair, const char* text);
 
 // `found`: the names of the unpaired hosts on the network. *done is set when
 // OK was tapped with a host (pair->selected, or pair->address while

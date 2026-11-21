@@ -1,0 +1,55 @@
+# Builds piccoletto for the browser (web/build.sh: Emscripten, WebGL 2) and
+# uploads piccoletto.js / .wasm with its page. piccolo's web package carries
+# it as piccoletto/ (piccolo's web/package.sh with PICCOLETTO=...).
+name: Web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  EMSDK_VERSION: 6.0.13   # piccolo's web build pins the same one
+
+jobs:
+  web:
+    name: Web (wasm)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Submodules
+        run: git submodule update --init --recursive --depth 1
+
+      # Ninja; the Vulkan headers (frontends-common's headers name Vulkan types
+      # even with Vulkan off).
+      - name: Packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q ninja-build libvulkan-dev
+
+      - uses: actions/cache@v4
+        id: emsdk
+        with:
+          path: ~/emsdk
+          key: web-tools-emsdk-${{ env.EMSDK_VERSION }}
+      - name: emsdk
+        if: steps.emsdk.outputs.cache-hit != 'true'
+        run: |
+          git clone -q https://github.com/emscripten-core/emsdk "$HOME/emsdk"
+          "$HOME/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$HOME/emsdk/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Build
+        run: |
+          . "$HOME/emsdk/emsdk_env.sh"
+          web/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piccoletto-web
+          path: |
+            web/build/wasm/piccoletto.js
+            web/build/wasm/piccoletto.wasm
+            web/page/
