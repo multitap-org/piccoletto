@@ -180,7 +180,7 @@ void ports_overlay_draw_tabs(PortsOverlay* overlay, const TouchUi* ui, bool hidd
     ports_view_draw_tabs(&overlay->view, ui->font, ui->scale, &text, false, hidden, true, now_ms);
 }
 
-NavAction ports_overlay_draw_board(PortsOverlay* overlay, const TouchUi* ui, const std::vector<NetDevice>* devices,
+NavAction ports_overlay_draw_board(PortsOverlay* overlay, const TouchUi* ui, uint64_t now_ms, const std::vector<NetDevice>* devices,
                                    bool known, PortsOverlayMove* move)
 {
     *move = PortsOverlayMove{};
@@ -194,7 +194,7 @@ NavAction ports_overlay_draw_board(PortsOverlay* overlay, const TouchUi* ui, con
     PortsViewText text;
     text.help = !known ? "ASKING THE HOST\xE2\x80\xA6" : (view->has_pick ? "TAP ITS NEW PORT" : "TAP A DEVICE TO MOVE IT");
     PortsViewBoardInput input;
-    ports_view_draw_board(view, ui->font, ui->scale, &text, &input);
+    ports_view_draw_board(view, ui->font, ui->scale, &text, now_ms, &input);
     if (input.move)
     {
         for (size_t i = 0; i < devices->size(); i++)

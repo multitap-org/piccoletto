@@ -51,5 +51,5 @@ void ports_overlay_reset(PortsOverlay* overlay);
 void ports_overlay_draw_tabs(PortsOverlay* overlay, const TouchUi* ui, bool hidden, uint64_t now_ms);
 
 // DEVICES. Returns NavAction::devices when DONE closes it.
-NavAction ports_overlay_draw_board(PortsOverlay* overlay, const TouchUi* ui, const std::vector<NetDevice>* devices,
+NavAction ports_overlay_draw_board(PortsOverlay* overlay, const TouchUi* ui, uint64_t now_ms, const std::vector<NetDevice>* devices,
                                    bool known, PortsOverlayMove* move);

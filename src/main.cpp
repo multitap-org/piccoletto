@@ -367,6 +367,7 @@ static void handle_action(App* app, NavAction action)
             close_menu(app);
             app->devices_open = !app->devices_open && selected_full_access(app);
             app->ports.view.has_pick = false;   // DEVICES opens with nothing picked
+            ports_view_open_board(&app->ports.view);   // (slides up from the bottom)
             if (app->devices_open)
             {
                 hosts_request_devices(&app->hosts);
@@ -772,7 +773,7 @@ static void draw_screen(App* app)
         bool known = false;
         std::vector<NetDevice>* list = ports_list(app, &known);
         PortsOverlayMove move;
-        NavAction board = ports_overlay_draw_board(&app->ports, &app->ui, list, known, &move);
+        NavAction board = ports_overlay_draw_board(&app->ports, &app->ui, SDL_GetTicks(), list, known, &move);
         action = board != NavAction::none ? board : action;
         if (move.move && list == &app->example_devices)
         {
