@@ -819,7 +819,7 @@ static void draw_screen(App* app)
         if (move.move && list == &app->example_devices)
         {
             // The example list: moved here (-1 = on no port: out of the list's ports).
-            (*list)[static_cast<size_t>(move.index)].ports = move.port < 0 ? 0 : static_cast<uint8_t>(1u << move.port);
+            (*list)[static_cast<size_t>(move.index)].ports = static_cast<uint8_t>(move.port < 0 ? 0u : 1u << move.port);
         }
         else if (move.move && move.index >= 0 && move.index < static_cast<int32_t>(app->hosts.devices.size()))
         {
