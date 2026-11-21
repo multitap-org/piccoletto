@@ -10,9 +10,6 @@
 
 // The line under the picture in portrait (the port LEDs, the host, the latency), retro pixels.
 constexpr float STATUS_HEIGHT = 12.0f;
-// Under this the pad below the picture would be too small for fingers: it
-// becomes an overlay instead (retro pixels per dp; the mockups' size is 0.5).
-constexpr float MIN_BELOW_SCALE = 0.3f;
 
 // The picture's place: the stream's size and aspect until there's video.
 static void draw_picture(const TouchUi* ui, const RemoteStream* stream, float x, float y, float width, float height)
@@ -82,55 +79,41 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t p
     const RetroUiPalette* palette = &ui->palette;
     float width = touch_ui_width(ui);
     float height = touch_ui_height(ui);
-    bool landscape = width > height;
-    NavAction action = NavAction::none;
+    // Landscape over the picture; upright under it if it fits (with the
+    // status line between), else over a tall picture (the DS): retroui
+    // decides, the same as piccolo's on-screen pad.
+    PadPlacement placement = pad_layouts_place(layouts, width, height, stream->aspect, STATUS_HEIGHT);
+    PadLayout* layout = pad_layouts_get(layouts, placement.id);
+    if (placement.below)
+    {
+        float ph = placement.picture_height;
+        float pad_top = ph + STATUS_HEIGHT;
+        touch_ui_rect(ui, 0.0f, 0.0f, width, height, palette->button_face);
+        touch_ui_rect(ui, 0.0f, 0.0f, width, pad_top, palette->panel_dark);
+        draw_picture(ui, stream, 0.0f, 0.0f, width, ph);
+        float status_y = ph + 2.0f;
+        float leds = title_bar_port_leds(ui, 4.0f, status_y, port);
+        touch_ui_text(ui, 4.0f + leds + 6.0f, status_y, host, palette->text_disabled, TouchText::normal);
+        // The ping at the right.
+        float ping_width = title_bar_ping_width(ui, link);
+        title_bar_ping(ui, width - 4.0f - ping_width, status_y, link, palette->text_disabled);
+        NavAction action = NavAction::none;
+        if (!editor->active && quick_menu_arrow(ui))
+        {
+            action = NavAction::menu;   // (over the picture's top right corner)
+        }
+        NavAction pad = draw_pad(ui, &placement.frame, layout, editor, hotkeys, show_touch);
+        return pad != NavAction::none ? pad : action;
+    }
+
+    // The picture as big as it gets, the pad over it.
     float px = 0.0f;
     float py = 0.0f;
     float pw = 0.0f;
     float ph = 0.0f;
-
-    if (!landscape)
-    {
-        // The picture across the top; does a pad still fit under it?
-        fit_picture(stream->aspect, 0.0f, 0.0f, width, height, &px, &py, &pw, &ph);
-        PadLayout* below = pad_layouts_get(layouts, PadLayoutId::remote_below);
-        float pad_top = ph + STATUS_HEIGHT;
-        float pad_room = height - pad_top;
-        PadFrame frame = pad_frame_fit_into(below->width, below->height, 0.0f, pad_top, width, pad_room > 0.0f ? pad_room : 0.0f);
-        if (frame.dp_scale >= MIN_BELOW_SCALE)
-        {
-            touch_ui_rect(ui, 0.0f, 0.0f, width, height, palette->button_face);
-            touch_ui_rect(ui, 0.0f, 0.0f, width, pad_top, palette->panel_dark);
-            draw_picture(ui, stream, 0.0f, 0.0f, pw, ph);
-            float status_y = ph + 2.0f;
-            float leds = title_bar_port_leds(ui, 4.0f, status_y, port);
-            touch_ui_text(ui, 4.0f + leds + 6.0f, status_y, host, palette->text_disabled, TouchText::normal);
-            // The ping at the right.
-            float ping_width = title_bar_ping_width(ui, link);
-            title_bar_ping(ui, width - 4.0f - ping_width, status_y, link, palette->text_disabled);
-            if (!editor->active && quick_menu_arrow(ui))
-            {
-                action = NavAction::menu;   // (over the picture's top right corner)
-            }
-            NavAction pad = draw_pad(ui, &frame, below, editor, hotkeys, show_touch);
-            return pad != NavAction::none ? pad : action;
-        }
-
-        // A tall picture (the DS): as big as it gets, the pad over its lower part.
-        draw_picture(ui, stream, px, py, pw, ph);
-        PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_portrait);
-        PadFrame overlay_frame = pad_frame_fit(ui, overlay->width, overlay->height);
-        NavAction icons = editor->active ? NavAction::none : draw_overlay_controls(ui, port, link);
-        NavAction pad = draw_pad(ui, &overlay_frame, overlay, editor, hotkeys, show_touch);
-        return pad != NavAction::none ? pad : icons;
-    }
-
-    // Landscape: the picture as tall as the screen, the pad over it.
     fit_picture(stream->aspect, 0.0f, 0.0f, width, height, &px, &py, &pw, &ph);
     draw_picture(ui, stream, px, py, pw, ph);
-    PadLayout* overlay = pad_layouts_get(layouts, PadLayoutId::remote_overlay_landscape);
-    PadFrame frame = pad_frame_fit_bottom(ui, overlay->width, overlay->height);
     NavAction icons = editor->active ? NavAction::none : draw_overlay_controls(ui, port, link);
-    NavAction pad = draw_pad(ui, &frame, overlay, editor, hotkeys, show_touch);
+    NavAction pad = draw_pad(ui, &placement.frame, layout, editor, hotkeys, show_touch);
     return pad != NavAction::none ? pad : icons;
 }

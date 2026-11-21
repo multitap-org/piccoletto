@@ -196,10 +196,7 @@ static void save_layouts(App* app)
     {
         return;
     }
-    for (int32_t i = 0; i < PAD_LAYOUT_COUNT; i++)
-    {
-        pad_layout_save(&app->layouts.layouts[i], &app->layouts_file);
-    }
+    pad_layouts_save_file(&app->layouts, &app->layouts_file);
     settings_file_save(&app->layouts_file, app->layouts_path.c_str(), "piccoletto's pad layouts (EDIT LAYOUT)");
 }
 
@@ -214,10 +211,7 @@ static void load_files(App* app)
     {
         settings_file_load(&app->layouts_file, app->layouts_path.c_str());
     }
-    for (int32_t i = 0; i < PAD_LAYOUT_COUNT; i++)
-    {
-        pad_layout_load(&app->layouts.layouts[i], &app->layouts_file);
-    }
+    pad_layouts_load_file(&app->layouts, &app->layouts_file);
 }
 
 // What follows the settings every frame: the theme, and the overlays' opacity
@@ -231,12 +225,7 @@ static void apply_settings(App* app)
     PadLayoutId overlays[2] = {PadLayoutId::remote_overlay_portrait, PadLayoutId::remote_overlay_landscape};
     for (int32_t i = 0; i < 2; i++)
     {
-        PadLayout* layout = pad_layouts_get(&app->layouts, overlays[i]);
-        layout->default_alpha = app->settings.overlay_opacity;
-        if (!layout->alpha_set)
-        {
-            layout->alpha = app->settings.overlay_opacity;
-        }
+        pad_layout_set_default_alpha(pad_layouts_get(&app->layouts, overlays[i]), app->settings.overlay_opacity);
     }
 }
 
