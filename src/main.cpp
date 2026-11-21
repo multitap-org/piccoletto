@@ -23,6 +23,7 @@
 #include "ports_overlay.h"
 #include "gamepad_screen.h"
 #include "haptics.h"
+#include "input_hold.h"
 #include "home_screen.h"
 #include "hosts.h"
 #include "host_fs.h"
@@ -53,7 +54,7 @@ struct App
     Screen         screen     = Screen::home;
     bool           menu_open = false;   // the quick menu over GAMEPAD / REMOTE PLAY
     QuickMenu      quick_menu = {};
-    double         start_held_since = 0.0;   // the pads: START held since (0 = not held; -1 = used, wait for release)
+    InputHold      start_hold = {};   // the pads: holding START opens the quick menu
     bool           devices_open = false; // DEVICES over GAMEPAD / REMOTE PLAY (FULL access)
     HomeScreen     home       = {};
     PairScreen     pair       = {};
@@ -81,7 +82,7 @@ struct App
     Haptics        haptics    = {};   // VIBRATE ON PRESS
     RealGamepad    gamepad    = {};   // gamepads connected to the phone
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
-    double         back_held_since = 0.0;        // the pads: BACK held since (0 = not held; -1 = used, wait for release)
+    InputHold      back_hold = {};              // the pads: holding BACK goes to HOME
     Hosts          hosts;             // the paired hosts, discovery, pairing, the connection
     PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (PAIR clears the code when it fails)
     std::string    settings_dir;      // settings/ ("" = nothing is saved)
@@ -459,10 +460,10 @@ static void handle_events(App* app)
 // ImGui's gamepad navigation on every screen but the pads (d-pad / stick
 // move the focus, A presses, B goes back); on GAMEPAD and REMOTE PLAY the
 // gamepad plays, and holding BACK for a second goes to HOME.
-constexpr double BACK_HOLD_SECONDS = 1.0;
-constexpr double START_HOLD_SECONDS = 1.0;   // opens the quick menu
+constexpr uint64_t BACK_HOLD_MS = 1000;
+constexpr uint64_t START_HOLD_MS = 1000;   // opens the quick menu
 
-static void update_gamepad_ui(App* app, double now)
+static void update_gamepad_ui(App* app, uint64_t now_ms)
 {
     RealGamepad* pads = &app->gamepad;
     if (pads->changed)
@@ -477,54 +478,34 @@ static void update_gamepad_ui(App* app, double now)
     if (on_pad)
     {
         io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
-        bool back = real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK);
-        if (!back)
+        if (input_hold_update(&app->back_hold, real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK), now_ms, BACK_HOLD_MS))
         {
-            app->back_held_since = 0.0;
-        }
-        else if (app->back_held_since == 0.0)
-        {
-            app->back_held_since = now;
-        }
-        else if (app->back_held_since > 0.0 && now - app->back_held_since >= BACK_HOLD_SECONDS)
-        {
-            app->back_held_since = -1.0;   // until it's let go
             SDL_Log("BACK held: HOME");
             go_to(app, Screen::home);
         }
         // Holding START opens the quick menu (START reaches the host
         // meanwhile: the game may pause, which fits a menu opening).
-        bool start = real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_START);
-        if (!start)
+        if (input_hold_update(&app->start_hold, real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_START), now_ms, START_HOLD_MS))
         {
-            app->start_held_since = 0.0;
-        }
-        else if (app->start_held_since == 0.0)
-        {
-            app->start_held_since = now;
-        }
-        else if (app->start_held_since > 0.0 && now - app->start_held_since >= START_HOLD_SECONDS)
-        {
-            app->start_held_since = -1.0;   // until it's let go
             SDL_Log("START held: quick menu");
             open_menu(app);
         }
         return;
     }
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    if (app->back_held_since < 0.0 && real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK))
+    if (input_hold_fired(&app->back_hold) && real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_BACK))
     {
         return;   // the BACK that just left a pad: not a press here
     }
-    if (app->start_held_since < 0.0)
+    if (input_hold_fired(&app->start_hold))
     {
         if (real_gamepad_held(pads, SDL_GAMEPAD_BUTTON_START))
         {
             return;   // the START that opened the quick menu: not a press here
         }
-        app->start_held_since = 0.0;
+        input_hold_reset(&app->start_hold);
     }
-    app->back_held_since = 0.0;
+    input_hold_reset(&app->back_hold);
     if (real_gamepad_pressed(pads, SDL_GAMEPAD_BUTTON_EAST) || real_gamepad_pressed(pads, SDL_GAMEPAD_BUTTON_BACK))
     {
         go_back(app);
@@ -984,7 +965,7 @@ static bool app_frame(void* data)
     apply_settings(app);
     real_gamepad_update(&app->gamepad);
     double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
-    update_gamepad_ui(app, now);
+    update_gamepad_ui(app, SDL_GetTicks());
     hosts_update(&app->hosts, now);
     // The modes need the host (Andrés): when the connection drops, or
     // can't be made, back to HOME.
