@@ -1,4 +1,4 @@
-// piccoletto: piccolo's companion app (see CLAUDE.md). For now: the window,
+// piccoletto: piccolo's companion app. For now: the window,
 // the theme and every screen with placeholder data; no networking yet.
 
 #include <cstdlib>

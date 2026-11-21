@@ -12,6 +12,6 @@ imgui.ini
 .idea/
 *.user
 
-# Notes stay local (see CLAUDE.md)
+# Notes stay local
 docs/
 .flatpak-builder/
