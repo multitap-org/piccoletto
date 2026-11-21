@@ -21,7 +21,7 @@
 
 struct QuickMenu
 {
-    float slide = 0.0f;              // 0 closed .. 1 fully in (it slides in when opened)
+    uint64_t opened_ms = 0;          // when it was opened: it slides in from then (retro_ui_ease_out)
     bool  settings_changed = false;  // SHADER or PACING changed: save them when it closes
 };
 

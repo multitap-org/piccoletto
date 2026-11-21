@@ -227,9 +227,7 @@ static void apply_settings(App* app)
     app->ui.palette = *retro_ui_theme_palette(app->settings.theme);
     // The gamepad's focus (ImGui draws it around the button) in the theme's highlight.
     uint32_t focus = app->ui.palette.highlight;
-    ImGui::GetStyle().Colors[ImGuiCol_NavCursor] =
-        ImVec4(static_cast<float>((focus >> 16) & 0xFFu) / 255.0f, static_cast<float>((focus >> 8) & 0xFFu) / 255.0f,
-               static_cast<float>(focus & 0xFFu) / 255.0f, 1.0f);
+    ImGui::GetStyle().Colors[ImGuiCol_NavCursor] = retro_ui_color_vec4(focus | 0xFF000000u);
     PadLayoutId overlays[2] = {PadLayoutId::remote_overlay_portrait, PadLayoutId::remote_overlay_landscape};
     for (int32_t i = 0; i < 2; i++)
     {
@@ -1028,9 +1026,8 @@ static bool app_frame(void* data)
     touch_fingers_end_frame(&app->fingers);
 
     uint32_t background = app->ui.palette.background;
-    ClearColor clear = {static_cast<float>((background >> 16) & 0xFFu) / 255.0f,
-                        static_cast<float>((background >> 8) & 0xFFu) / 255.0f,
-                        static_cast<float>(background & 0xFFu) / 255.0f, 1.0f};
+    ImVec4 background_color = retro_ui_color_vec4(background);
+    ClearColor clear = {background_color.x, background_color.y, background_color.z, 1.0f};
     if (!app_shell_present(&app->shell, clear))
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Fatal rendering error, exiting");

@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include <SDL3/SDL_timer.h>
+
 #include "imgui.h"
 
 #include "pixel_font_imgui.h"
@@ -17,7 +19,7 @@ constexpr float MENU_GAP       = 4.0f;
 constexpr float ROW_LANDSCAPE  = 17.0f;    // 34 dp: the landscape screen is only 195 tall
 constexpr float ROW_PORTRAIT   = 22.0f;    // 44 dp
 constexpr float LABEL_HEIGHT   = 8.0f;
-constexpr float SLIDE_SECONDS  = 0.12f;
+constexpr uint64_t SLIDE_MS    = 120;
 
 constexpr float    ARROW_SIZE   = 22.0f;   // 44 dp
 constexpr float    ARROW_MARGIN = 4.0f;
@@ -49,7 +51,7 @@ const char* nav_action_name(NavAction action)
 
 void quick_menu_open(QuickMenu* menu)
 {
-    menu->slide = 0.0f;
+    menu->opened_ms = SDL_GetTicks();
 }
 
 bool quick_menu_arrow(const TouchUi* ui)
@@ -77,11 +79,8 @@ NavAction quick_menu_draw(QuickMenu* menu, const TouchUi* ui, const QuickMenuInp
     NavAction picked = NavAction::none;
 
     // It slides in (eased out); the screen behind darkens as it comes.
-    menu->slide += ImGui::GetIO().DeltaTime / SLIDE_SECONDS;
-    menu->slide = menu->slide > 1.0f ? 1.0f : menu->slide;
-    float eased = 1.0f - (1.0f - menu->slide) * (1.0f - menu->slide);
-    uint32_t dim_alpha = static_cast<uint32_t>(static_cast<float>(DIM >> 24) * eased);
-    touch_ui_rect(ui, 0.0f, 0.0f, width, height, (dim_alpha << 24) | (DIM & 0x00FFFFFFu));
+    float eased = retro_ui_ease_out(SDL_GetTicks(), menu->opened_ms, SLIDE_MS);
+    touch_ui_rect(ui, 0.0f, 0.0f, width, height, retro_ui_color_with_alpha(DIM, eased));
 
     float menu_width = std::floor(width * (landscape ? MENU_SHARE_LANDSCAPE : MENU_SHARE_PORTRAIT));
     float left = std::floor(width - menu_width * eased);
