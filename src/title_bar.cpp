@@ -88,14 +88,10 @@ bool title_bar_back(const TouchUi* ui)
 // The LEDs and the ping bars: retroui's port_indicators.h (piccolo's tabs draw the same).
 float title_bar_port_leds(const TouchUi* ui, float x, float y, int32_t port)
 {
-    const RetroUiPalette* palette = &ui->palette;
-    for (int32_t i = 0; i < TITLE_BAR_PORTS; i++)
-    {
-        bool lit = i + 1 == port;
-        touch_ui_rect(ui, x + static_cast<float>(i) * (PORT_LED_SIZE + PORT_LED_GAP), y + 2.0f, PORT_LED_SIZE, PORT_LED_SIZE,
-                      lit ? PORT_LED_ON : palette->panel_dark);
-    }
-    return static_cast<float>(TITLE_BAR_PORTS) * (PORT_LED_SIZE + PORT_LED_GAP) - PORT_LED_GAP;
+    float block = static_cast<float>(ui->scale);
+    float width = port_indicators_draw_leds(std::floor(x * block), std::floor((y + 2.0f) * block), block, TITLE_BAR_PORTS, port - 1,
+                                            ui->palette.panel_dark);
+    return width / block;
 }
 
 void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb)
@@ -183,22 +179,10 @@ float title_bar_ping_width(const TouchUi* ui, const PadLink* link)
 
 float title_bar_ping(const TouchUi* ui, float x, float y, const PadLink* link, uint32_t text_argb)
 {
-    const RetroUiPalette* palette = &ui->palette;
-    uint32_t lit = 0;
-    uint32_t color = palette->panel_dark;
-    if (link->state == LinkShown::ready)
-    {
-        lit = ping_bars_lit(link->ping_ms);
-        color = ping_color(link->ping_ms);
-    }
     // Rising bars, bottoms level with the letters' (rows 2..6 of the cell).
-    float bottom = y + 7.0f;
-    for (uint32_t i = 0; i < PING_BARS; i++)
-    {
-        float height = ping_bar_height(i);
-        touch_ui_rect(ui, x + static_cast<float>(i) * (PING_BAR_WIDTH + PING_BAR_GAP), bottom - height, PING_BAR_WIDTH, height,
-                      i < lit ? color : palette->panel_dark);
-    }
+    float block = static_cast<float>(ui->scale);
+    port_indicators_draw_ping(std::floor(x * block), std::floor((y + 7.0f) * block), block, link->state == LinkShown::ready, link->ping_ms,
+                              ui->palette.panel_dark);
     char text[96];
     ping_text(link, text, sizeof(text));
     return BARS_WIDTH + touch_ui_text(ui, x + BARS_WIDTH, y, text, text_argb, TouchText::normal);
