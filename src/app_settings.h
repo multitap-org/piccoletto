@@ -37,6 +37,8 @@ struct AppSettings
     float         overlay_opacity = 0.6f;                     // overlays' default; adjustable while streaming
     StreamPacing  pacing          = StreamPacing::balanced;   // REMOTE PLAY's latency against smoothness
     int32_t       shader          = 0;                        // REMOTE PLAY's shader (shader_presets.h; 0 = none)
+    bool          shader_gl       = false;                    // `shader` is in the OpenGL ES list (set before loading
+                                                              // from the GPU path; not saved)
 };
 
 void app_settings_load(AppSettings* settings, const SettingsFile* file);

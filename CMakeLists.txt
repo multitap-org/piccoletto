@@ -197,9 +197,11 @@ if(EMSCRIPTEN)
     # main thread, frontends-common's net_webrtc.js, linked by frontend_net);
     # fixed memory (growing it with threads makes every JS access slow).
     # WasmFS in memory: piccoletto's folder is kept on OPFS by the page
-    # (frontends-common's app_storage, web/multitap-storage.js). No shader
-    # presets: librashader doesn't run in a browser (REMOTE PLAY draws the
-    # picture sharp bilinear).
+    # (frontends-common's app_storage, web/multitap-storage.js). REMOTE PLAY's
+    # shaders: the OpenGL ES presets (deps/piccolo-shaders-legacy), embedded
+    # at /shaders/gl (SDL's base path is /; a few KB, so no .data file for
+    # the page to ship); the slang ones need librashader, which doesn't run
+    # in a browser.
     target_link_options(piccoletto PRIVATE
         -pthread
         -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
@@ -207,29 +209,36 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=1mb -sDEFAULT_PTHREAD_STACK_SIZE=1mb
         -sEXPORTED_RUNTIME_METHODS=FS,ENV,ccall
         -sWASMFS -sPTHREAD_POOL_SIZE=4
+        "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy@/shaders/gl"
+        "--exclude-file=${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy/.git"
         # The page's FS calls (mkdirTree, writeFile: multitap-storage.js) need
-        # the whole JS filesystem API; piccolo gets it with its preloaded
-        # files, piccoletto preloads nothing.
+        # the whole JS filesystem API.
         -sFORCE_FILESYSTEM
         $<$<CONFIG:Debug>:-sASSERTIONS=2>)
 elseif(NOT ANDROID)
     multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
 endif()
 
-# REMOTE PLAY's shaders: piccolo's curated presets (deps/piccolo-shaders, each
-# file under its own license) next to the program in shaders/presets, where
-# shader_presets.h looks. (Android: build-apk.sh puts them in the APK.)
+# REMOTE PLAY's shaders next to the program, where shader_presets.h looks:
+# piccolo's curated slang presets (deps/piccolo-shaders, each file under its
+# own license) in shaders/presets, the OpenGL ES ones
+# (deps/piccolo-shaders-legacy) in shaders/gl. (Android: build-apk.sh puts
+# them in the APK; the browser embeds shaders/gl, above.)
 if(NOT ANDROID AND NOT EMSCRIPTEN)
     add_custom_command(TARGET piccoletto POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders"
                 "$<TARGET_FILE_DIR:piccoletto>/shaders/presets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy"
+                "$<TARGET_FILE_DIR:piccoletto>/shaders/gl"
         COMMENT "Copying the shader presets next to piccoletto"
         VERBATIM)
     if(MULTITAP_PICCOLETTO_DIR)
         add_custom_target(copy_piccoletto_presets ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders"
                     "${MULTITAP_PICCOLETTO_DIR}/shaders/presets"
-            COMMENT "Copying the shader presets to ${MULTITAP_PICCOLETTO_DIR}/shaders/presets"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy"
+                    "${MULTITAP_PICCOLETTO_DIR}/shaders/gl"
+            COMMENT "Copying the shader presets to ${MULTITAP_PICCOLETTO_DIR}/shaders"
             VERBATIM)
     endif()
 endif()

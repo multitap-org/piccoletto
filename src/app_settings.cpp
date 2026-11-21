@@ -36,9 +36,16 @@ static int32_t find_key(const char* value, const char* const* keys, int32_t coun
     return fallback;
 }
 
+static const char* shader_key(bool gl)
+{
+    return gl ? "remote_play_shader_gl" : "remote_play_shader";
+}
+
 void app_settings_load(AppSettings* settings, const SettingsFile* file)
 {
+    bool gl = settings->shader_gl;
     *settings = AppSettings{};
+    settings->shader_gl = gl;
     const char* name = settings_file_get(file, "", "phone_name");
     if (name != nullptr && name[0] != '\0')
     {
@@ -61,8 +68,9 @@ void app_settings_load(AppSettings* settings, const SettingsFile* file)
     }
     settings->pacing = static_cast<StreamPacing>(
         find_key(settings_file_get(file, "", "remote_play_pacing"), PACING_KEYS, static_cast<int32_t>(StreamPacing::count), 1));
-    const char* shader = settings_file_get(file, "", "remote_play_shader");
-    settings->shader = shader != nullptr ? shader_preset_find(shader) : 0;
+    // One key per GPU path: a device that changes path keeps the other's choice.
+    const char* shader = settings_file_get(file, "", shader_key(settings->shader_gl));
+    settings->shader = shader != nullptr ? shader_preset_find(settings->shader_gl, shader) : 0;
 }
 
 void app_settings_save(const AppSettings* settings, SettingsFile* file)
@@ -75,5 +83,5 @@ void app_settings_save(const AppSettings* settings, SettingsFile* file)
     std::snprintf(value, sizeof(value), "%.2f", static_cast<double>(settings->overlay_opacity));
     settings_file_set(file, "", "overlay_opacity", value);
     settings_file_set(file, "", "remote_play_pacing", PACING_KEYS[static_cast<int32_t>(settings->pacing)]);
-    settings_file_set(file, "", "remote_play_shader", shader_preset(settings->shader)->key);
+    settings_file_set(file, "", shader_key(settings->shader_gl), shader_preset(settings->shader_gl, settings->shader)->key);
 }
