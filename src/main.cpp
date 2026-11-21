@@ -17,6 +17,7 @@
 #include "app_loop.h"
 #include "app_paths.h"
 #include "app_settings.h"
+#include "app_assets.h"
 #include "app_shell.h"
 #include "app_storage.h"
 #include "ports_overlay.h"
@@ -1151,9 +1152,10 @@ int main(int argc, char** argv)
         // The presets live in the APK; librashader reads plain files.
         if (!app->settings_dir.empty())
         {
-            std::string shaders = app->settings_dir + "/../shaders";
-            shader_presets_unpack(shaders.c_str(), PICCOLETTO_VERSION);
-            app->presets_dir = shaders + "/" + shader_presets_folder(app->settings.shader_gl);
+            std::string root = app->settings_dir + "/../";
+            const char* const folders[1] = {"shaders"};
+            app_assets_unpack(folders, 1, root.c_str(), app_assets_apk_stamp());
+            app->presets_dir = root + "shaders/" + shader_presets_folder(app->settings.shader_gl);
         }
 #endif
     }

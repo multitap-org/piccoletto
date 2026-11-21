@@ -16,8 +16,8 @@
 //
 // Where they are: next to the program in shaders/ (CMake copies them there;
 // on Android build-apk.sh puts them in the APK and the app copies them out to
-// its own folder, since librashader reads plain files; the browser build
-// preloads shaders/gl).
+// its own folder with frontends-common's app_assets, since librashader reads
+// plain files; the browser build preloads shaders/gl).
 
 #include <cstdint>
 
@@ -34,9 +34,3 @@ const ShaderPreset* shader_preset(bool gl, int32_t index);
 int32_t shader_preset_find(bool gl, const char* key);
 // The list's folder under shaders/: "presets" (Vulkan) or "gl".
 const char* shader_presets_folder(bool gl);
-
-// Android: copies the presets out of the APK (assets under shaders/, listed
-// in shaders/files.txt relative to it) into `folder`, when that list or
-// `version` changed since the last time (a marker file says what's there).
-// False (logged) if it couldn't; the old copy, if any, stays.
-bool shader_presets_unpack(const char* folder, const char* version);

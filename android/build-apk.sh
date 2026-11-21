@@ -103,27 +103,23 @@ echo "== package"
 # the TV banner, straight from assets/branding/android/res (one copy: no
 # exports kept here to fall behind).
 aapt2 compile --dir "$root/assets/branding/android/res" -o "$apk_dir/res.zip"
-# Assets: REMOTE PLAY's shader presets under shaders/ with a list of their
-# files (shaders/files.txt, relative to shaders/), which the app copies out to
-# its own folder (librashader and gl_shader_chain read plain files, not the
-# APK): the OpenGL ES ones (deps/piccolo-shaders-legacy) in shaders/gl in
-# both APKs (the main one falls back to OpenGL ES without Vulkan), the slang
-# ones (deps/piccolo-shaders) in shaders/presets only in the main APK (they
-# need librashader's Vulkan runtime).
+# Assets: REMOTE PLAY's shader presets under shaders/, which the app copies
+# out to its own folder (librashader and gl_shader_chain read plain files,
+# not the APK; frontends-common's app_assets, again when the APK changes):
+# the OpenGL ES ones (deps/piccolo-shaders-legacy) in shaders/gl in both APKs
+# (the main one falls back to OpenGL ES without Vulkan), the slang ones
+# (deps/piccolo-shaders) in shaders/presets only in the main APK (they need
+# librashader's Vulkan runtime).
 rm -rf "$apk_dir/assets"
 mkdir -p "$apk_dir/assets/shaders"
-: > "$apk_dir/files.txt"
 pack_shaders() {   # <source folder> <folder under shaders/>
-    (cd "$1" && find . -type f ! -path './.git*' | sed "s|^\./|$2/|" | sort) > "$apk_dir/files-$2.txt"
     mkdir -p "$apk_dir/assets/shaders/$2"
     (cd "$1" && find . -type f ! -path './.git*' | sed 's|^\./||' | sort | tar cf - -T -) | (cd "$apk_dir/assets/shaders/$2" && tar xf -)
-    cat "$apk_dir/files-$2.txt" >> "$apk_dir/files.txt"
 }
 pack_shaders "$root/deps/piccolo-shaders-legacy" gl
 if [ "$legacy" = 0 ]; then
     pack_shaders "$root/deps/piccolo-shaders" presets
 fi
-cp "$apk_dir/files.txt" "$apk_dir/assets/shaders/files.txt"
 # The legacy APK: minSdk 21, no Vulkan requirement (the uses-feature line
 # would hide it from devices without Vulkan), its own name; the overlay
 # (android/res-legacy: the LEGACY banner) and its own package.
