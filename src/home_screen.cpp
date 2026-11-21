@@ -21,6 +21,17 @@ constexpr float REFRESH_SIZE  = 24.0f;   // the bandwidth's refresh by the host'
 
 // A light and a status word ("ONLINE"), the light level with the letters
 // (rows 2..6 of the font's cell).
+// The word under a host's lamp: on the LAN now, across the internet (its
+// beacon: whether it's there shows when connecting), or neither.
+static const char* status_word(const HomeHost* host)
+{
+    if (host->online)
+    {
+        return "ONLINE";
+    }
+    return host->internet ? "INTERNET" : "OFFLINE";
+}
+
 static void draw_status(const TouchUi* ui, float x, float y, bool online, const char* word)
 {
     const RetroUiPalette* palette = &ui->palette;
@@ -85,7 +96,7 @@ static NavAction draw_card(const TouchUi* ui, const HomeHost* host, float x, flo
     float inner_x = x + CARD_PADDING;
     float inner_width = width - 2.0f * CARD_PADDING;
     float line = y + CARD_PADDING;
-    draw_status(ui, inner_x, line, host->online, host->online ? "ONLINE" : "OFFLINE");
+    draw_status(ui, inner_x, line, host->online, status_word(host));
     line += touch_ui_text_height(ui, TouchText::normal) + 10.0f;
     float name_width = touch_ui_text(ui, inner_x, line, host->name, palette->text_highlight, TouchText::big);
     NavAction action = NavAction::none;
@@ -120,7 +131,7 @@ static NavAction draw_card(const TouchUi* ui, const HomeHost* host, float x, flo
         draw_bandwidth(ui, host, inner_x, line);
     }
 
-    if (!host->online)
+    if (!host->online && !host->internet)
     {
         return action;   // nothing to connect to: no mode buttons
     }
@@ -157,7 +168,7 @@ static float card_height(const TouchUi* ui, const HomeHost* host)
     {
         text += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
     }
-    float buttons = host->online ? card_buttons_height(&host->access) : 0.0f;
+    float buttons = (host->online || host->internet) ? card_buttons_height(&host->access) : 0.0f;
     return text + 14.0f + buttons + CARD_PADDING;
 }
 
@@ -312,9 +323,10 @@ static bool draw_sidebar_host(const TouchUi* ui, const HomeHost* host, int32_t i
     std::snprintf(id, sizeof(id), "##side_host%d", static_cast<int>(index));
     bool tapped = touch_ui_button(ui, id, x, y, width, SIDEBAR_CARD, nullptr, TouchButton::card, TouchText::normal);
     float line = y + CARD_PADDING;
-    draw_status(ui, x + CARD_PADDING, line, host->online, host->online ? "ONLINE" : "OFFLINE");
+    draw_status(ui, x + CARD_PADDING, line, host->online, status_word(host));
     line += touch_ui_text_height(ui, TouchText::normal) + 8.0f;
-    touch_ui_text(ui, x + CARD_PADDING, line, host->name, host->online ? palette->text_highlight : palette->text_disabled,
+    bool reachable = host->online || host->internet;
+    touch_ui_text(ui, x + CARD_PADDING, line, host->name, reachable ? palette->text_highlight : palette->text_disabled,
                   TouchText::normal);
     line += touch_ui_text_height(ui, TouchText::normal) + 6.0f;
     if (host->playing[0] != '\0')

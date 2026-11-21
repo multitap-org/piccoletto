@@ -8,7 +8,8 @@
 #       on 32-bit ARM, OpenGL ES 2 only (the SHIELD Portable, Tegra 4), as
 #       piccolo's --legacy. No Vulkan in it (Android 5 has no libvulkan.so):
 #       armeabi-v7a, minSdk 21, MULTITAP_GPU_VULKAN=OFF, MULTITAP_GL_ES2=ON, no
-#       librashader and no slang presets (they need Vulkan). Its own package
+#       librashader and no slang presets (they need Vulkan): only the OpenGL
+#       ES presets (deps/piccolo-shaders-legacy). Its own package
 #       (site.multitap.piccoletto.legacy), name ("piccoletto legacy") and
 #       banner (a LEGACY tag, android/res-legacy from
 #       assets/branding/piccoletto-banner-tv-legacy.svg): it installs next to
@@ -102,18 +103,27 @@ echo "== package"
 # the TV banner, straight from assets/branding/android/res (one copy: no
 # exports kept here to fall behind).
 aapt2 compile --dir "$root/assets/branding/android/res" -o "$apk_dir/res.zip"
-# Assets: REMOTE PLAY's shader presets (deps/piccolo-shaders) with a list of
-# their files, which the app copies out to its own folder (librashader reads
-# plain files, not the APK).
-# (Not in the legacy APK: slang presets need librashader's Vulkan runtime.)
+# Assets: REMOTE PLAY's shader presets under shaders/ with a list of their
+# files (shaders/files.txt, relative to shaders/), which the app copies out to
+# its own folder (librashader and gl_shader_chain read plain files, not the
+# APK): the OpenGL ES ones (deps/piccolo-shaders-legacy) in shaders/gl in
+# both APKs (the main one falls back to OpenGL ES without Vulkan), the slang
+# ones (deps/piccolo-shaders) in shaders/presets only in the main APK (they
+# need librashader's Vulkan runtime).
 rm -rf "$apk_dir/assets"
-mkdir -p "$apk_dir/assets"
+mkdir -p "$apk_dir/assets/shaders"
+: > "$apk_dir/files.txt"
+pack_shaders() {   # <source folder> <folder under shaders/>
+    (cd "$1" && find . -type f ! -path './.git*' | sed "s|^\./|$2/|" | sort) > "$apk_dir/files-$2.txt"
+    mkdir -p "$apk_dir/assets/shaders/$2"
+    (cd "$1" && find . -type f ! -path './.git*' | sed 's|^\./||' | sort | tar cf - -T -) | (cd "$apk_dir/assets/shaders/$2" && tar xf -)
+    cat "$apk_dir/files-$2.txt" >> "$apk_dir/files.txt"
+}
+pack_shaders "$root/deps/piccolo-shaders-legacy" gl
 if [ "$legacy" = 0 ]; then
-    mkdir -p "$apk_dir/assets/shaders/presets"
-    (cd "$root/deps/piccolo-shaders" && find . -type f ! -path './.git*' | sed 's|^\./||' | sort) > "$apk_dir/presets.txt"
-    (cd "$root/deps/piccolo-shaders" && tar cf - -T "$apk_dir/presets.txt") | (cd "$apk_dir/assets/shaders/presets" && tar xf -)
-    cp "$apk_dir/presets.txt" "$apk_dir/assets/shaders/presets.txt"
+    pack_shaders "$root/deps/piccolo-shaders" presets
 fi
+cp "$apk_dir/files.txt" "$apk_dir/assets/shaders/files.txt"
 # The legacy APK: minSdk 21, no Vulkan requirement (the uses-feature line
 # would hide it from devices without Vulkan), its own name; the overlay
 # (android/res-legacy: the LEGACY banner) and its own package.

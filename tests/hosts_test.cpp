@@ -757,7 +757,7 @@ int main(int argc, char** argv)
     {
         check(hosts->known[0].beacon == beacon_name, "the beacon kept");
         check(hosts->known[0].address.port == 0, "no LAN address");
-        check(hosts_reachable(&hosts->known[0]), "reachable through the beacon");
+        check(hosts->known[0].internet, "reachable through the beacon");
     }
     for (int32_t i = 0; i < 50; i++)
     {
@@ -769,7 +769,7 @@ int main(int argc, char** argv)
     {
         pump_once(&pump);
     }
-    check(hosts->link == LinkStatus::ready && hosts->via_beacon, "connected across the internet");
+    check(hosts->link == LinkStatus::ready && hosts->net.client.via_beacon, "connected across the internet");
     hosts_disconnect(hosts);
     hosts_destroy(hosts);
     delete hosts;

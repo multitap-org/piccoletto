@@ -33,6 +33,9 @@ option(MULTITAP_BUILD_TESTS        "Build tests and register CTest tests"       
 # isn't usable (MULTITAP_GPU=gl forces it). ImGui's GL backend is built either in its
 # desktop mode (GLES 3 / desktop GL) or, with this ON, for GLES 2 (Android 5, Tegra 4).
 option(MULTITAP_GL_ES2             "ImGui's GL backend for GLES 2 (and GLES 2.0 contexts)" OFF)
+# Vulkan in the build. OFF: OpenGL ES only, nothing links libvulkan (the
+# browser build, web/build.sh: WebGL 2).
+option(MULTITAP_GPU_VULKAN         "Vulkan in the build (OFF: OpenGL ES only, the browser)" ON)
 
 # Where builds are copied so they're easy to find and run, like piccolo's:
 # Linux $XDG_DATA_HOME/piccoletto (default ~/.local/share/piccoletto), macOS
@@ -80,7 +83,9 @@ endforeach()
 # ---------------------------------------------------------------------------
 # Third-party dependencies (built with their own defaults, not our warnings)
 # ---------------------------------------------------------------------------
-find_package(Vulkan REQUIRED)
+if(MULTITAP_GPU_VULKAN)
+    find_package(Vulkan REQUIRED)
+endif()
 
 if(MULTITAP_SYSTEM_SDL3)
     find_package(SDL3 CONFIG REQUIRED)
@@ -105,16 +110,24 @@ add_library(imgui STATIC
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 target_include_directories(imgui SYSTEM PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
-target_link_libraries(imgui PUBLIC SDL3::SDL3 Vulkan::Vulkan)
+target_link_libraries(imgui PUBLIC SDL3::SDL3)
+if(MULTITAP_GPU_VULKAN)
+    target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp)
+    target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
+endif()
 if(MULTITAP_GL_ES2)
     # GLES 2 mode calls libGLESv2 directly (its own header, no loader).
     find_library(MULTITAP_GLESV2_LIBRARY NAMES GLESv2 REQUIRED)
     target_compile_definitions(imgui PUBLIC IMGUI_IMPL_OPENGL_ES2)
     target_link_libraries(imgui PUBLIC ${MULTITAP_GLESV2_LIBRARY})
+elseif(EMSCRIPTEN)
+    # The browser: WebGL 2. ImGui's backend would pick ES 2 ("#version 100")
+    # by itself under Emscripten; gl_context makes an ES 3.0 context and
+    # gives ImGui "#version 300 es", so both are told ES 3 (as piccolo).
+    target_compile_definitions(imgui PUBLIC IMGUI_IMPL_OPENGL_ES3)
 elseif(ANDROID)
     # On Android ImGui's backend picks GLES 3 itself and calls libGLESv3 directly.
     target_link_libraries(imgui PUBLIC GLESv3)
@@ -177,29 +190,60 @@ target_include_directories(piccoletto PRIVATE "${PICCOLETTO_GENERATED}")
 message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 
 multitap_set_project_flags(piccoletto)
-if(NOT ANDROID)
+if(EMSCRIPTEN)
+    # The browser build (web/build.sh): piccoletto.js + piccoletto.wasm, the
+    # same recipe as piccolo's (its CMakeLists.txt, docs/wasm.md). WebGL 2;
+    # threads (net_client_service's thread; WebRTC itself lives on the page's
+    # main thread, frontends-common's net_webrtc.js, linked by frontend_net);
+    # fixed memory (growing it with threads makes every JS access slow).
+    # WasmFS in memory: piccoletto's folder is kept on OPFS by the page
+    # (frontends-common's app_storage, web/multitap-storage.js). REMOTE PLAY's
+    # shaders: the OpenGL ES presets (deps/piccolo-shaders-legacy), embedded
+    # at /shaders/gl (SDL's base path is /; a few KB, so no .data file for
+    # the page to ship); the slang ones need librashader, which doesn't run
+    # in a browser.
+    target_link_options(piccoletto PRIVATE
+        -pthread
+        -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
+        -sINITIAL_MEMORY=128mb
+        -sSTACK_SIZE=1mb -sDEFAULT_PTHREAD_STACK_SIZE=1mb
+        -sEXPORTED_RUNTIME_METHODS=FS,ENV,ccall
+        -sWASMFS -sPTHREAD_POOL_SIZE=4
+        "--embed-file=${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy@/shaders/gl"
+        "--exclude-file=${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy/.git"
+        # The page's FS calls (mkdirTree, writeFile: multitap-storage.js) need
+        # the whole JS filesystem API.
+        -sFORCE_FILESYSTEM
+        $<$<CONFIG:Debug>:-sASSERTIONS=2>)
+elseif(NOT ANDROID)
     multitap_copy_after_build(piccoletto "${MULTITAP_PICCOLETTO_DIR}")
 endif()
 
-# REMOTE PLAY's shaders: piccolo's curated presets (deps/piccolo-shaders, each
-# file under its own license) next to the program in shaders/presets, where
-# shader_presets.h looks. (Android: build-apk.sh puts them in the APK.)
-if(NOT ANDROID)
+# REMOTE PLAY's shaders next to the program, where shader_presets.h looks:
+# piccolo's curated slang presets (deps/piccolo-shaders, each file under its
+# own license) in shaders/presets, the OpenGL ES ones
+# (deps/piccolo-shaders-legacy) in shaders/gl. (Android: build-apk.sh puts
+# them in the APK; the browser embeds shaders/gl, above.)
+if(NOT ANDROID AND NOT EMSCRIPTEN)
     add_custom_command(TARGET piccoletto POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders"
                 "$<TARGET_FILE_DIR:piccoletto>/shaders/presets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy"
+                "$<TARGET_FILE_DIR:piccoletto>/shaders/gl"
         COMMENT "Copying the shader presets next to piccoletto"
         VERBATIM)
     if(MULTITAP_PICCOLETTO_DIR)
         add_custom_target(copy_piccoletto_presets ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders"
                     "${MULTITAP_PICCOLETTO_DIR}/shaders/presets"
-            COMMENT "Copying the shader presets to ${MULTITAP_PICCOLETTO_DIR}/shaders/presets"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/deps/piccolo-shaders-legacy"
+                    "${MULTITAP_PICCOLETTO_DIR}/shaders/gl"
+            COMMENT "Copying the shader presets to ${MULTITAP_PICCOLETTO_DIR}/shaders"
             VERBATIM)
     endif()
 endif()
 
-if(MULTITAP_BUILD_TESTS)
+if(MULTITAP_BUILD_TESTS AND NOT EMSCRIPTEN)
     # src/hosts.* against a host in the same process over loopback (pairing,
     # connecting, discovery). Its scratch folder is emptied first.
     add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)

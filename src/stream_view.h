@@ -43,7 +43,7 @@ struct StreamView
     // On screen: the shader preset in stage 1 (stage 0, piccolo's pass 0,
     // isn't used), or plain with sharp bilinear.
     VideoOutput          output;
-    const ShaderLibrary* library = nullptr;  // nullptr / not loaded: no shaders
+    const ShaderLibrary* library = nullptr;  // nullptr / not loaded: no shaders on Vulkan (OpenGL ES needs none)
     bool                 drawn = false;      // this frame drew the picture (record it)
 };
 
