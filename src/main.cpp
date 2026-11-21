@@ -69,6 +69,7 @@ struct App
     TouchFingers   fingers    = {};   // every finger, for the pads
     TouchFocus     focus      = {};   // the gamepad's focus this frame (SETTINGS scrolls to it)
     RetroPad       touch_pad  = {};   // the touch pad's parts held this frame (pad_layout_draw)
+    RetroPad       gamepad_pad = {};  // what the real gamepads hold, as a RetroPad (lights the pads' parts)
     bool           join_sent  = false;   // START was tapped for this connection (the pad joins a port)
     int32_t        start_frames = 0;     // frames START is still held for that tap
     Haptics        haptics    = {};   // VIBRATE ON PRESS
@@ -674,7 +675,10 @@ static void draw_screen(App* app)
     // The pads take fingers only while nothing covers them.
     bool covered = app->menu_open || app->devices_open || (app->screen == Screen::home && app->home.sidebar_open);
     app->ui.fingers = covered ? nullptr : &app->fingers;
-    app->ui.gamepad = &app->gamepad;
+    // A real gamepad lights the pads' parts too (retroui's touch pad takes it as a RetroPad).
+    real_gamepad_retropad(&app->gamepad, &app->gamepad_pad);
+    app->ui.lit = &app->gamepad_pad;
+    app->ui.action_lit = real_gamepad_held(&app->gamepad, SDL_GAMEPAD_BUTTON_GUIDE);
     app->focus = TouchFocus{};
     app->ui.focus = &app->focus;
     app->touch_pad = RetroPad{};

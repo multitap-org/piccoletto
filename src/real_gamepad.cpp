@@ -9,30 +9,6 @@
 constexpr float STICK_DEADZONE    = 0.2f;
 constexpr float TRIGGER_THRESHOLD = 0.5f;
 
-// Pad part ids (pad_layouts.cpp) to SDL's buttons, by position.
-struct PartButton
-{
-    const char*       id;
-    SDL_GamepadButton button;
-};
-
-static const PartButton PART_BUTTONS[] = {
-    {"##a", SDL_GAMEPAD_BUTTON_EAST},
-    {"##b", SDL_GAMEPAD_BUTTON_SOUTH},
-    {"##x", SDL_GAMEPAD_BUTTON_NORTH},
-    {"##y", SDL_GAMEPAD_BUTTON_WEST},
-    {"##l", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER},
-    {"##r", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
-    {"##up", SDL_GAMEPAD_BUTTON_DPAD_UP},
-    {"##down", SDL_GAMEPAD_BUTTON_DPAD_DOWN},
-    {"##left", SDL_GAMEPAD_BUTTON_DPAD_LEFT},
-    {"##right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
-    {"##select", SDL_GAMEPAD_BUTTON_BACK},
-    {"##start", SDL_GAMEPAD_BUTTON_START},
-    {"##hotkey", SDL_GAMEPAD_BUTTON_GUIDE},
-};
-constexpr int32_t PART_BUTTON_COUNT = static_cast<int32_t>(sizeof(PART_BUTTONS) / sizeof(PART_BUTTONS[0]));
-
 static void add(RealGamepad* pads, SDL_JoystickID id)
 {
     if (pads->count >= REAL_GAMEPAD_MAX)
@@ -169,47 +145,6 @@ bool real_gamepad_connected(const RealGamepad* pads)
 static bool button(const RealGamepad* pads, SDL_GamepadButton which)
 {
     return (pads->buttons & (1u << static_cast<uint32_t>(which))) != 0;
-}
-
-static bool stick(float x, float y, bool pressed, float* stick_x, float* stick_y)
-{
-    *stick_x = x;
-    *stick_y = y;
-    return pressed || SDL_fabsf(x) > STICK_DEADZONE || SDL_fabsf(y) > STICK_DEADZONE;
-}
-
-bool real_gamepad_part_held(const RealGamepad* pads, const char* part_id, float* stick_x, float* stick_y)
-{
-    *stick_x = 0.0f;
-    *stick_y = 0.0f;
-    if (pads->count == 0)
-    {
-        return false;
-    }
-    if (SDL_strcmp(part_id, "##l2") == 0)
-    {
-        return pads->left_trigger > TRIGGER_THRESHOLD;
-    }
-    if (SDL_strcmp(part_id, "##r2") == 0)
-    {
-        return pads->right_trigger > TRIGGER_THRESHOLD;
-    }
-    if (SDL_strcmp(part_id, "##lstick") == 0)
-    {
-        return stick(pads->left_x, pads->left_y, button(pads, SDL_GAMEPAD_BUTTON_LEFT_STICK), stick_x, stick_y);
-    }
-    if (SDL_strcmp(part_id, "##rstick") == 0)
-    {
-        return stick(pads->right_x, pads->right_y, button(pads, SDL_GAMEPAD_BUTTON_RIGHT_STICK), stick_x, stick_y);
-    }
-    for (int32_t i = 0; i < PART_BUTTON_COUNT; i++)
-    {
-        if (SDL_strcmp(part_id, PART_BUTTONS[i].id) == 0)
-        {
-            return button(pads, PART_BUTTONS[i].button);
-        }
-    }
-    return false;
 }
 
 void real_gamepad_retropad(const RealGamepad* pads, RetroPad* pad)

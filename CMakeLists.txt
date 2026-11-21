@@ -141,26 +141,19 @@ add_subdirectory(deps/common/retroui)
 # ---------------------------------------------------------------------------
 set(PICCOLETTO_SOURCES
     src/main.cpp
-    src/touch_ui.cpp
     src/home_screen.cpp
     src/quick_menu.cpp
-    src/pad_layout.cpp
     src/gamepad_screen.cpp
     src/remote_play_screen.cpp
     src/stream_view.cpp
     src/shader_presets.cpp
     src/pair_screen.cpp
     src/ports_overlay.cpp
-    src/pad_layouts.cpp
-    src/pad_editor.cpp
     src/app_settings.cpp
     src/settings_screen.cpp
     src/title_bar.cpp
-    src/touch_fingers.cpp
-    src/haptics.cpp
     src/real_gamepad.cpp
     src/hosts.cpp
-    src/retropad.cpp
 )
 if(ANDROID)
     # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):
@@ -212,7 +205,7 @@ if(MULTITAP_BUILD_TESTS)
     add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)
     target_include_directories(piccoletto_hosts_test PRIVATE src)
     target_link_libraries(piccoletto_hosts_test PRIVATE frontend_common frontend_net)
-    target_sources(piccoletto_hosts_test PRIVATE src/retropad.cpp)
+    target_link_libraries(piccoletto_hosts_test PRIVATE retroui)   # (retropad)
     multitap_set_project_flags(piccoletto_hosts_test)
     set(HOSTS_TEST_SCRATCH "${CMAKE_CURRENT_BINARY_DIR}/hosts_test")
     add_test(NAME piccoletto_hosts_clean COMMAND ${CMAKE_COMMAND} -E rm -rf "${HOSTS_TEST_SCRATCH}")

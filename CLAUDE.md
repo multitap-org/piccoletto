@@ -54,8 +54,9 @@ piccoletto builds on its own: every dependency is a submodule in `deps/`.
 
 **Sharing with piccolo:** what both need is moved out of piccolo into a
 library, never copied: the look into retroui, frontend plumbing into
-frontends-common. `src/touch_ui.*` starts here and moves to retroui once it
-settles or piccolo wants it. A library change: edit it in its submodule (all
+frontends-common. The touch UI and the touch pads (touch_ui, touch_fingers,
+retropad, pad_layout, pad_layouts, pad_editor) are in retroui now: piccolo has
+the same on-screen pad; haptics is in frontends-common. A library change: edit it in its submodule (all
 three on `main`), build and test here, commit and push THERE first, then
 commit piccoletto's pointer.
 
@@ -74,6 +75,8 @@ pointers), big features on a branch until Andrés says to merge. Trailer:
 
 ```
 CMakeLists.txt     options, SDL, Vulkan, imgui, the libraries, piccoletto
+(retroui)               touch_ui, touch_fingers, retropad, pad_layout / pad_layouts (the layouts and their defaults),
+                        pad_editor (EDIT LAYOUT): the touch UI and pads, shared with piccolo
 src/main.cpp            the app: window, files (settings/piccoletto.cfg, layouts.cfg), screens (NavAction),
                         the ☰ sheet, ROTATE, back key; for testing: --screen home|pair|gamepad|remote_play|
                         devices (over GAMEPAD, example list)|settings, --landscape, --aspect W:H (the stream's shape), --edit
@@ -81,15 +84,10 @@ src/hosts.*             the network (frontend_net; the connection on frontends-c
                         thread, every hosts_* under its lock): this phone's identity, the paired hosts, LAN discovery,
                         pairing with the code, connecting, the ping, the speed test, the pad (RetroPad) and
                         its port (controllers), FORGET on both sides; files settings/net_identity.cfg, net_hosts.cfg, hosts.cfg
-src/retropad.*          the pad as a RetroPad (Andrés: the phone maps): parts / real gamepads to
-                        RETRO_DEVICE_ID_JOYPAD bits, sent to the host each frame (hosts_send_pad)
-src/touch_fingers.*     every finger (SDL finger events; the mouse on the desktop), for the pads and the pinch
-src/real_gamepad.*      gamepads connected to the phone: light the pad's parts, hide REMOTE PLAY's touch controls,
+src/real_gamepad.*      gamepads connected to the phone: light the pad's parts (as a RetroPad: TouchUi::lit), hide
+                        REMOTE PLAY's touch controls,
                         navigate the other screens (ImGui's gamepad nav: A presses, B back); on the pads hold
                         BACK 1 s for HOME. Not gamepads: SDL's ignore list (main.cpp), no face buttons
-src/haptics.*           VIBRATE ON PRESS (the phone's vibrator through SDL haptics; nothing on the desktop)
-src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big), rects, lamps, touch areas,
-                        buttons (normal, primary, ghost, card, plain, field)
 src/screens.h           Screen, NavAction (what a tap asks for)
 src/title_bar.*         the title bar's row: back (every screen but HOME), the host in the middle (pads), the
                         icons (+ = PAIR A DEVICE with the found count, rotate, ☰; + off on the pads); the pads'
@@ -97,11 +95,6 @@ src/title_bar.*         the title bar's row: back (every screen but HOME), the h
 src/home_screen.*       HOME: card of the selected host with its granted modes; the other hosts in a sidebar,
                         closed to a tab at the right (landscape) or a bar at the bottom (portrait), up to 80%
 src/pair_screen.*       PAIR: pick a found host (or type an address), 6-digit code, keypad, how pairing goes
-src/pad_layout.*        pad parts (piccolo's pad picture blocks, lit while held) in groups, as dp tables fitted
-                        to the screen; the user's moves / sizes / alpha per group, saved
-src/pad_layouts.*       every layout's defaults: GAMEPAD portrait, landscape (one default shared by GAMEPAD and
-                        REMOTE PLAY), REMOTE PLAY below the picture, overlay portrait (tall pictures: DS)
-src/pad_editor.*        EDIT LAYOUT: drag groups, pinch / SIZE, OPACITY, SNAP (8 dp), RESET, DONE
 src/app_settings.*      piccoletto.cfg: phone name, theme, language, vibrate, overlay opacity, quality
 src/settings_screen.*   SETTINGS (HOME's ☰), drag to scroll
 src/gamepad_screen.*    GAMEPAD: portrait (header + pad) and landscape (the pad picture's shape)

@@ -55,13 +55,14 @@ static void fit_picture(float aspect, float room_x, float room_y, float room_wid
 static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool hotkeys,
                           bool show_touch)
 {
+    layout->action_label = hotkeys ? "HOTKEY" : nullptr;   // (retroui's action button: piccoletto's HOTKEY)
     if (editor->active)
     {
         return pad_editor_draw(editor, ui, frame, layout) ? NavAction::edit_done : NavAction::none;
     }
     if (show_touch)
     {
-        pad_layout_draw(ui, frame, layout, hotkeys);
+        pad_layout_draw(ui, frame, layout);
     }
     return NavAction::none;
 }

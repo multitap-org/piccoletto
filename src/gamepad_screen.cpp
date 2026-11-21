@@ -9,11 +9,12 @@
 // The pad's layout (or its editor, while editing).
 static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* layout, PadEditor* editor, bool hotkeys)
 {
+    layout->action_label = hotkeys ? "HOTKEY" : nullptr;   // (retroui's action button: piccoletto's HOTKEY)
     if (editor->active)
     {
         return pad_editor_draw(editor, ui, frame, layout) ? NavAction::edit_done : NavAction::none;
     }
-    pad_layout_draw(ui, frame, layout, hotkeys);
+    pad_layout_draw(ui, frame, layout);
     return NavAction::none;
 }
 

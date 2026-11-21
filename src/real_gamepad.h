@@ -53,7 +53,3 @@ void real_gamepad_retropad(const RealGamepad* pads, RetroPad* pad);
 // A button (SDL_GamepadButton) down on any gamepad now / gone down since the last update.
 bool real_gamepad_held(const RealGamepad* pads, int32_t button);
 bool real_gamepad_pressed(const RealGamepad* pads, int32_t button);
-
-// Whether the pad part with this id ("##a", "##lstick"...) is pressed on a
-// real gamepad; for a stick, also where it is (-1..1).
-bool real_gamepad_part_held(const RealGamepad* pads, const char* part_id, float* stick_x, float* stick_y);
