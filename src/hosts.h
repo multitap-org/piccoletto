@@ -25,8 +25,11 @@
 // dropped from the list.
 //
 // Across the internet (Andrés: the same flow whatever the transport): a host
-// paired with its pair link (PAIR: the link it copies or shows as a QR, and
-// the code) or one that isn't on the LAN is met through its beacon:
+// that isn't on the LAN is met through its beacon: the pair link's, or the
+// default one for a host paired on the LAN (Andrés, 2026-11-21: a phone that
+// leaves home doesn't pair again). Such a host is tried at its LAN address
+// first unless it was last met across the internet; no answer there, then
+// the beacon:
 // net_client_connect_beacon, UDP hole punching first, then WebRTC through
 // the beacon's signaling. In a browser that's the only way (no LAN there:
 // no discovery, no ENet; WebRTC only).
@@ -145,6 +148,7 @@ struct Hosts
     int32_t                linked = -1;         // the known host connecting / connected
     NetAddress             connecting_to;       // the address of the connection running (kept when it's ready)
     bool                   connect_pending = false;     // `linked` is connected to once the last connection has closed
+    bool                   lan_failed = false;  // this connection's LAN try got no answer: the beacon next
     HostsResolve           resolve;             // the beacon being looked up (not in a browser)
     HostsSpeedTest         speed;
     bool                   has_stats = false;   // `stats` is the ready connection's

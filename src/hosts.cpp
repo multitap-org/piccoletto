@@ -714,12 +714,13 @@ static void resolve_done(Hosts* hosts)
 
 // Connects to the known host `index` as an already paired device: on the
 // LAN when it's there (answering discovery, or never met across the
-// internet), else through its beacon: its addresses looked up first (UDP
+// internet, unless that try just got no answer), else through its beacon
+// (the default one for hosts paired on the LAN): its addresses looked up first (UDP
 // hole punching, then WebRTC); in a browser WebRTC through the signaling.
 static bool start_connect(Hosts* hosts, int32_t index)
 {
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
-    if (hosts->lan && host->address.port != 0 && (host->online || !host->internet))
+    if (hosts->lan && host->address.port != 0 && (host->online || !host->internet) && !hosts->lan_failed)
     {
         hosts->connecting_to = host->address;
         return net_client_connect(&hosts->net.client, host->address, nullptr);
@@ -862,6 +863,20 @@ static void update_locked(Hosts* hosts, double now)
                 {
                     hosts->refusal_still_known = true;
                 }
+            }
+            // A host paired on the LAN that didn't answer at its LAN address
+            // (the phone left home): through the default beacon instead,
+            // once this connection is gone (Andrés, 2026-11-21).
+            if (hosts->link == LinkStatus::connecting && event.refusal == NetClientRefusal::connection &&
+                hosts->connecting_to.port != 0 && !hosts->lan_failed && hosts->linked >= 0 &&
+                hosts->linked < static_cast<int32_t>(hosts->known.size()) &&
+                !hosts->known[static_cast<size_t>(hosts->linked)].online)
+            {
+                SDL_Log("Network: no answer on the LAN; through the beacon");
+                hosts->lan_failed = true;
+                hosts->connect_pending = true;
+                hosts->refusal = NetClientRefusal::none;
+                break;
             }
             if (hosts->link == LinkStatus::connecting)
             {
@@ -1023,6 +1038,7 @@ static bool connect_locked(Hosts* hosts, int32_t index)
     hosts->link = LinkStatus::connecting;
     hosts->linked = index;
     hosts->refusal = NetClientRefusal::none;
+    hosts->lan_failed = false;
     // The last connection may still be closing (HOME, then a mode right
     // away): then hosts_update connects once it's gone.
     hosts->connect_pending = client_busy(hosts);
@@ -1099,7 +1115,6 @@ static bool measure_locked(Hosts* hosts, int32_t index)
     {
         return false;
     }
-    const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
     if (hosts->link == LinkStatus::ready && hosts->linked == index)
     {
         if (!hosts->speed.running)
@@ -1108,7 +1123,7 @@ static bool measure_locked(Hosts* hosts, int32_t index)
         }
         return true;
     }
-    if ((!host->online && !host->internet) || hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready ||
+    if (hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready ||
         hosts->pending_unpair >= 0)
     {
         return false;
