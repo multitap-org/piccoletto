@@ -761,11 +761,13 @@ static void draw_screen(App* app)
         home_sidebar_draw(&app->home, &app->ui, shown, shown_count);
         touch_ui_end_screen();
     }
-    // DEVICES over the pads (the game shows through). An empty window under
+    // DEVICES over the pads (the game shows through, dimmed). A window under
     // it takes the taps away from the screen; the board reads them itself.
     if (app->devices_open && !app->menu_open)
     {
         touch_ui_begin_overlay(&app->ui, "##devices_window");
+        // The pads dimmed behind it (the board doesn't dim on its own).
+        touch_ui_rect(&app->ui, 0.0f, 0.0f, touch_ui_width(&app->ui), touch_ui_height(&app->ui), 0x50000000u);
         touch_ui_end_screen();
         bool known = false;
         std::vector<NetDevice>* list = ports_list(app, &known);
