@@ -5,10 +5,10 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "retro_ui_theme.h"
 #include "settings_file.h"
 #include "shader_presets.h"
 
-static const char* const THEME_KEYS[] = {"blue", "purple", "zsnes", "black"};
 static const char* const THEME_NAMES[] = {"BLUE", "PURPLE", "ZSNES", "BLACK"};
 static const char* const LANGUAGE_KEYS[] = {"en", "es"};
 static const char* const PACING_KEYS[] = {"latency", "balanced", "smooth"};
@@ -51,8 +51,8 @@ void app_settings_load(AppSettings* settings, const SettingsFile* file)
     {
         std::snprintf(settings->phone_name, sizeof(settings->phone_name), "%s", name);
     }
-    settings->theme = static_cast<RetroUiTheme>(
-        find_key(settings_file_get(file, "", "theme"), THEME_KEYS, static_cast<int32_t>(RetroUiTheme::count), 0));
+    settings->theme = RetroUiTheme::blue;
+    retro_ui_theme_from_key(settings_file_get(file, "", "theme"), &settings->theme);   // (unknown: BLUE)
     settings->language = static_cast<AppLanguage>(
         find_key(settings_file_get(file, "", "language"), LANGUAGE_KEYS, static_cast<int32_t>(AppLanguage::count), 0));
     const char* vibrate = settings_file_get(file, "", "vibrate");
@@ -76,7 +76,7 @@ void app_settings_load(AppSettings* settings, const SettingsFile* file)
 void app_settings_save(const AppSettings* settings, SettingsFile* file)
 {
     settings_file_set(file, "", "phone_name", settings->phone_name);
-    settings_file_set(file, "", "theme", THEME_KEYS[static_cast<int32_t>(settings->theme)]);
+    settings_file_set(file, "", "theme", retro_ui_theme_key(settings->theme));
     settings_file_set(file, "", "language", LANGUAGE_KEYS[static_cast<int32_t>(settings->language)]);
     settings_file_set(file, "", "vibrate", settings->vibrate ? "true" : "false");
     char value[16];
