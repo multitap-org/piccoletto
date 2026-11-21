@@ -23,27 +23,6 @@ static float label(const TouchUi* ui, float x, float y, const char* text)
     return y + LABEL_HEIGHT;
 }
 
-// A row of buttons, one per choice, the current one highlighted. Returns the
-// tapped choice or -1.
-static int32_t choices(const TouchUi* ui, const char* id, const char* const* names, int32_t count, int32_t current, float x,
-                       float y, float width)
-{
-    float each = (width - static_cast<float>(count - 1) * GAP) / static_cast<float>(count);
-    int32_t picked = -1;
-    for (int32_t i = 0; i < count; i++)
-    {
-        char button_id[48];
-        std::snprintf(button_id, sizeof(button_id), "%s%d", id, static_cast<int>(i));
-        TouchButton style = i == current ? TouchButton::primary : TouchButton::normal;
-        if (touch_ui_button(ui, button_id, x + static_cast<float>(i) * (each + GAP), y, each, CONTROL, names[i], style,
-                            TouchText::normal))
-        {
-            picked = i;
-        }
-    }
-    return picked;
-}
-
 // The phone's name: an ImGui text field in the screen's colors.
 static void name_field(const TouchUi* ui, AppSettings* settings, float x, float y, float width)
 {
@@ -109,7 +88,7 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     y = label(ui, x, y, "THEME");
     const char* themes[4] = {app_theme_name(RetroUiTheme::blue), app_theme_name(RetroUiTheme::purple),
                              app_theme_name(RetroUiTheme::zsnes), app_theme_name(RetroUiTheme::black)};
-    int32_t theme = choices(ui, "##theme", themes, 4, static_cast<int32_t>(settings->theme), x, y, column);
+    int32_t theme = touch_ui_choices(ui, "##theme", themes, 4, static_cast<int32_t>(settings->theme), x, y, column, CONTROL);
     if (theme >= 0)
     {
         settings->theme = static_cast<RetroUiTheme>(theme);
@@ -118,7 +97,7 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
 
     y = label(ui, x, y, "LANGUAGE");
     const char* languages[2] = {"ENGLISH", "ESPAÑOL"};
-    int32_t language = choices(ui, "##language", languages, 2, static_cast<int32_t>(settings->language), x, y, column);
+    int32_t language = touch_ui_choices(ui, "##language", languages, 2, static_cast<int32_t>(settings->language), x, y, column, CONTROL);
     if (language >= 0)
     {
         settings->language = static_cast<AppLanguage>(language);
@@ -127,7 +106,7 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
 
     y = label(ui, x, y, "VIBRATE ON PRESS");
     const char* on_off[2] = {"ON", "OFF"};
-    int32_t vibrate = choices(ui, "##vibrate", on_off, 2, settings->vibrate ? 0 : 1, x, y, column);
+    int32_t vibrate = touch_ui_choices(ui, "##vibrate", on_off, 2, settings->vibrate ? 0 : 1, x, y, column, CONTROL);
     if (vibrate >= 0)
     {
         settings->vibrate = vibrate == 0;
@@ -138,7 +117,7 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     char percent[16];
     std::snprintf(percent, sizeof(percent), "%d%%", static_cast<int>(std::lround(settings->overlay_opacity * 100.0f)));
     const char* opacity_steps[3] = {"-", percent, "+"};
-    int32_t opacity = choices(ui, "##opacity", opacity_steps, 3, 1, x, y, column);
+    int32_t opacity = touch_ui_choices(ui, "##opacity", opacity_steps, 3, 1, x, y, column, CONTROL);
     if (opacity == 0 || opacity == 2)
     {
         float next = settings->overlay_opacity + (opacity == 0 ? -0.1f : 0.1f);
@@ -148,7 +127,7 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
 
     y = label(ui, x, y, "REMOTE PLAY PACING");
     const char* pacings[3] = {"LATENCY", "BALANCED", "SMOOTH"};
-    int32_t pacing = choices(ui, "##pacing", pacings, 3, static_cast<int32_t>(settings->pacing), x, y, column);
+    int32_t pacing = touch_ui_choices(ui, "##pacing", pacings, 3, static_cast<int32_t>(settings->pacing), x, y, column, CONTROL);
     if (pacing >= 0)
     {
         settings->pacing = static_cast<StreamPacing>(pacing);
@@ -158,7 +137,7 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     // Lightest first; - / + step through them.
     y = label(ui, x, y, "REMOTE PLAY SHADER");
     const char* shader_steps[3] = {"-", shader_preset(settings->shader_gl, settings->shader)->label, "+"};
-    int32_t shader = choices(ui, "##shader", shader_steps, 3, 1, x, y, column);
+    int32_t shader = touch_ui_choices(ui, "##shader", shader_steps, 3, 1, x, y, column, CONTROL);
     if (shader == 0 || shader == 2)
     {
         int32_t count = shader_preset_count(settings->shader_gl);

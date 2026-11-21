@@ -116,39 +116,24 @@ NavAction quick_menu_draw(QuickMenu* menu, const TouchUi* ui, const QuickMenuInp
     if (in_remote_play)
     {
         y = label(ui, x, y, "SHADER");
-        if (touch_ui_button(ui, "##quick_shader_less", x, y, row, row, "-", TouchButton::normal, TouchText::normal))
+        const char* shader = shader_preset(settings->shader_gl, settings->shader)->label;
+        int32_t step = touch_ui_stepper(ui, "##quick_shader", shader, x, y, inner, row);
+        if (step != 0)
         {
             int32_t count = shader_preset_count(settings->shader_gl);
-            settings->shader = (settings->shader + count - 1) % count;
-            menu->settings_changed = true;
-        }
-        touch_ui_rect(ui, x + row + MENU_GAP, y, inner - 2.0f * (row + MENU_GAP), row, palette->field_face);
-        const char* shader = shader_preset(settings->shader_gl, settings->shader)->label;
-        float shader_x = x + (inner - touch_ui_text_width(ui, shader, TouchText::normal)) * 0.5f;
-        touch_ui_text(ui, std::floor(shader_x), touch_ui_centered_text_y(ui, y, row, TouchText::normal), shader,
-                      palette->text, TouchText::normal);
-        if (touch_ui_button(ui, "##quick_shader_more", x + inner - row, y, row, row, "+", TouchButton::normal,
-                            TouchText::normal))
-        {
-            settings->shader = (settings->shader + 1) % shader_preset_count(settings->shader_gl);
+            settings->shader = (settings->shader + count + step) % count;
             menu->settings_changed = true;
         }
         y += row + MENU_GAP;
 
         y = label(ui, x, y, "PACING");
         static const char* const PACINGS[] = {"LATENCY", "BALANCED", "SMOOTH"};
-        float each = (inner - 2.0f * MENU_GAP) / 3.0f;
-        for (int32_t i = 0; i < 3; i++)
+        int32_t pacing = touch_ui_choices(ui, "##quick_pacing", PACINGS, 3, static_cast<int32_t>(settings->pacing), x, y, inner,
+                                          row);
+        if (pacing >= 0)
         {
-            char id[32];
-            std::snprintf(id, sizeof(id), "##quick_pacing%d", static_cast<int>(i));
-            TouchButton style = static_cast<int32_t>(settings->pacing) == i ? TouchButton::primary : TouchButton::normal;
-            if (touch_ui_button(ui, id, x + static_cast<float>(i) * (each + MENU_GAP), y, each, row, PACINGS[i], style,
-                                TouchText::normal))
-            {
-                settings->pacing = static_cast<StreamPacing>(i);
-                menu->settings_changed = true;
-            }
+            settings->pacing = static_cast<StreamPacing>(pacing);
+            menu->settings_changed = true;
         }
         y += row + MENU_GAP + 2.0f;
     }

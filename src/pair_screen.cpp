@@ -53,16 +53,6 @@ static void address_field(PairScreen* pair, const TouchUi* ui, float x, float y,
     ImGui::PopFont();
 }
 
-// The outline of the picked row: the highlight color, inside its edges.
-static void draw_outline(const TouchUi* ui, float x, float y, float width, float height)
-{
-    uint32_t color = ui->palette.highlight;
-    touch_ui_rect(ui, x, y, width, SELECTED_EDGE, color);
-    touch_ui_rect(ui, x, y + height - SELECTED_EDGE, width, SELECTED_EDGE, color);
-    touch_ui_rect(ui, x, y, SELECTED_EDGE, height, color);
-    touch_ui_rect(ui, x + width - SELECTED_EDGE, y, SELECTED_EDGE, height, color);
-}
-
 // Step 1: the hosts found, one row each, and typing an address. Returns the
 // y below it.
 static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* found, int32_t found_count, float x, float y,
@@ -88,7 +78,7 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
                       palette->text_disabled, TouchText::normal);
         if (i == pair->selected && !pair->typing_address)
         {
-            draw_outline(ui, x, y, width, ROW_HEIGHT);
+            touch_ui_outline(ui, x, y, width, ROW_HEIGHT, SELECTED_EDGE, ui->palette.highlight);   // the picked row
         }
         y += ROW_HEIGHT + GAP;
     }
@@ -100,7 +90,7 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
     if (pair->typing_address)
     {
         address_field(pair, ui, x, y, width);
-        draw_outline(ui, x, y, width, ROW_HEIGHT);
+        touch_ui_outline(ui, x, y, width, ROW_HEIGHT, SELECTED_EDGE, ui->palette.highlight);   // the picked row
         return y + ROW_HEIGHT + GAP;
     }
     char address_label[64];
