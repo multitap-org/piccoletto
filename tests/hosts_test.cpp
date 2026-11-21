@@ -5,7 +5,9 @@
 // host online through discovery, FORGET telling the host, the host
 // unpairing the phone; REMOTE PLAY's stream (stream_start, game_state,
 // stream_info, a coded frame arriving exact, stream_stop); DEVICES (the
-// host's list, moving one, the list again).
+// host's list, moving one, the list again); across the internet: pairing
+// with the host's pair link through a beacon in the same process, then
+// connecting through it (the host isn't on the LAN for a host paired so).
 //
 //   piccoletto_hosts_test <scratch folder>
 
@@ -16,10 +18,13 @@
 
 #include <SDL3/SDL.h>
 
+#include "beacon_net.h"
+#include "beacon_server.h"
 #include "host_fs.h"
 #include "hosts.h"
 #include "net_access.h"
 #include "net_content.h"
+#include "net_pair_link.h"
 #include "net_stream.h"
 #include "net_settings.h"
 #include "net_speed.h"
@@ -60,6 +65,8 @@ struct Pump
     bool             headless = false;   // GO HEADLESS granted
     std::vector<NetDevice> devices;     // as piccolo's list: who plays on its ports
     uint32_t         devices_requests = 0;
+    BeaconServer*    beacon_server = nullptr;   // across the internet (the last part)
+    BeaconNet*       beacon_net = nullptr;
 };
 
 static void host_send_devices(Pump* pump, uint32_t peer, uint32_t id)
@@ -176,6 +183,13 @@ static void host_speed_update(Pump* pump)
 
 static void pump_once(Pump* pump)
 {
+    if (pump->beacon_server != nullptr)
+    {
+        uint64_t now = beacon_now_ms();
+        beacon_net_drain(pump->beacon_net, pump->beacon_server, now, BeaconSocket::PRIMARY, 64);
+        beacon_net_drain(pump->beacon_net, pump->beacon_server, now, BeaconSocket::SECONDARY, 64);
+        beacon_server_tick(pump->beacon_server, now);
+    }
     NetAccessEvent event;
     while (net_access_poll(pump->access, &event))
     {
@@ -677,8 +691,102 @@ int main(int argc, char** argv)
     hosts_destroy(hosts);
     delete hosts;
 
+    // Across the internet: a beacon here, the host registered with it; a
+    // new phone with only the pair link and the code.
+    BeaconServer* beacon_server = new BeaconServer{};
+    BeaconNet* beacon_net = new BeaconNet{};
+    BeaconServerConfig beacon_config;
+    check(beacon_server_create(beacon_server, &beacon_config, beacon_now_ms()), "beacon starts");
+    uint16_t beacon_port = 0;
+    for (uint16_t attempt = 0; attempt < 20 && beacon_port == 0; attempt++)
+    {
+        uint16_t port = static_cast<uint16_t>(42000 + (beacon_now_ms() % 9000) + attempt * 2);   // its NAT check: port + 1
+        if (beacon_net_open(beacon_net, "::", port, static_cast<uint16_t>(port + 1), -1))
+        {
+            beacon_port = port;
+        }
+    }
+    check(beacon_port != 0, "beacon listens");
+    char beacon_name[32];
+    std::snprintf(beacon_name, sizeof(beacon_name), "127.0.0.1:%u", static_cast<unsigned>(beacon_port));
+    NetAddress beacon_address;
+    check(net_address_from_text("127.0.0.1", beacon_port, &beacon_address), "beacon address");
+    net_access_set_beacon(access, &beacon_address, 1);
+    pump.beacon_server = beacon_server;
+    pump.beacon_net = beacon_net;
+
+    std::string link = net_pair_link(host_identity.public_key, beacon_name);
+    check(hosts_is_pair_link(link.c_str()) && !hosts_is_pair_link("192.168.1.20"), "a pair link is told from an address");
+    std::string internet_dir = root + "/phone_internet";
+    check(host_fs_make_directories(internet_dir.c_str()), "the second phone's folder");
+    hosts = new Hosts{};
+    pump.hosts = hosts;
+    check(hosts_create(hosts, internet_dir.c_str(), "INTERNET PHONE"), "hosts_create (second phone)");
+    if (access->pairing_open)
+    {
+        net_access_close_pairing(access);
+    }
+    for (int32_t i = 0; i < 100; i++)
+    {
+        pump_once(&pump);
+    }
+    check(!hosts_pair_link(hosts, "https://get-piccolo.app/pair/#k=nope", "123456"), "a bad link doesn't start");
+    check(hosts_pair_link(hosts, link.c_str(), "123456"), "pairing with the link starts");
+    end = now_seconds() + 10.0;
+    while (now_seconds() < end && hosts->pair == PairStatus::busy)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->pair == PairStatus::failed && hosts->refusal == NetClientRefusal::host_offline,
+          "the host isn't pairing: no room");
+    check(std::strcmp(hosts_pair_failure_text(hosts), "OPEN PAIR A DEVICE ON IT FIRST") == 0, "PAIR says so");
+    check(net_access_open_pairing(access), "host opens pairing (internet)");
+    for (int32_t i = 0; i < 200; i++)   // its REGISTER with the pairing room
+    {
+        pump_once(&pump);
+    }
+    hosts->pair = PairStatus::idle;
+    check(hosts_pair_link(hosts, link.c_str(), access->code), "pairing with the link and the code");
+    end = now_seconds() + 10.0;
+    while (now_seconds() < end && hosts->pair == PairStatus::busy)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->pair == PairStatus::paired && hosts->known.size() == 1, "paired across the internet");
+    if (hosts->known.size() == 1)
+    {
+        check(hosts->known[0].beacon == beacon_name, "the beacon kept");
+        check(hosts->known[0].address.port == 0, "no LAN address");
+        check(hosts_reachable(&hosts->known[0]), "reachable through the beacon");
+    }
+    for (int32_t i = 0; i < 50; i++)
+    {
+        pump_once(&pump);
+    }
+    check(hosts_connect(hosts, 0), "connect through the beacon");
+    end = now_seconds() + 10.0;
+    while (now_seconds() < end && hosts->link == LinkStatus::connecting)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->link == LinkStatus::ready && hosts->via_beacon, "connected across the internet");
+    hosts_disconnect(hosts);
+    hosts_destroy(hosts);
+    delete hosts;
+    hosts = new Hosts{};
+    check(hosts_create(hosts, internet_dir.c_str(), "INTERNET PHONE"), "hosts_create again (second phone)");
+    check(hosts->known.size() == 1 && hosts->known[0].beacon == beacon_name, "the beacon saved");
+    hosts_destroy(hosts);
+    delete hosts;
+    pump.beacon_server = nullptr;
+    pump.beacon_net = nullptr;
+
     net_access_destroy(access);
     delete access;
+    beacon_net_close(beacon_net);
+    delete beacon_net;
+    beacon_server_destroy(beacon_server);
+    delete beacon_server;
     net_keypair_wipe(&host_identity);
     net_shutdown();
 

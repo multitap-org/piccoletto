@@ -33,6 +33,10 @@
 #include <string>
 #include <vector>
 
+#include <SDL3/SDL_atomic.h>
+#include <SDL3/SDL_thread.h>
+
+#include "net_beacon.h"
 #include "net_client_service.h"
 #include "net_content.h"
 #include "net_host.h"
@@ -51,6 +55,8 @@ struct KnownHost
     NetAddress     address;                 // last seen; port 0 = never
     NetAccessLevel access = NetAccessLevel::gamepad;
     bool           online = false;          // answering discovery now
+    std::string    beacon;                  // reachable across the internet through this beacon ("" = LAN only):
+                                            // paired with its pair link
     uint32_t       down_kbps = 0;           // last speed test: what got through, host -> phone (0 = never measured)
     uint32_t       up_kbps = 0;             // phone -> host
     bool           measured = false;        // speed-tested since the app started
@@ -69,6 +75,22 @@ struct HostsSpeedTest
     double            asked_at = 0.0;       // a report that never comes ends the test
     NetSpeedReceiver  receiver;             // down
     NetSpeedSender    sender;               // up
+};
+
+// A beacon's name to its addresses (DNS blocks: on its own thread), then
+// what was waiting for them: pairing with a link or connecting to `index`.
+struct HostsResolve
+{
+    SDL_Thread*    thread = nullptr;
+    SDL_AtomicInt  done = {};
+    char           name[256] = {};
+    NetAddress     servers[NET_BEACON_MAX_SERVERS];
+    uint32_t       count = 0;
+    bool           cancelled = false;       // nobody wants it any more: dropped when it ends
+    bool           pairing = false;         // else connecting to `index`
+    uint8_t        key[NET_KEY_SIZE] = {};  // pairing: the link's host key
+    char           code[8] = {};            // pairing: the 6 digits
+    int32_t        index = -1;              // connecting: the known host
 };
 
 struct FoundHost
@@ -113,6 +135,9 @@ struct Hosts
     int32_t                linked = -1;         // the known host connecting / connected
     NetAddress             connecting_to;       // the address of the connection running (kept when it's ready)
     bool                   connect_pending = false;     // `linked` is connected to once the last connection has closed
+    bool                   via_beacon = false;  // the connection running goes through `beacon` (no address)
+    std::string            beacon;              // its beacon then
+    HostsResolve           resolve;
     HostsSpeedTest         speed;
     bool                   has_stats = false;   // `stats` is the ready connection's
     NetLinkStats           stats;
@@ -162,6 +187,16 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index);
 // Pair with the host at `address` with the code it shows. Progress in
 // hosts->pair. False if it can't start (another connection is running).
 bool hosts_pair(Hosts* hosts, NetAddress address, const char* code);
+// Across the internet: pair with the host a pair link names
+// (https://get-piccolo.app/pair/#k=...&b=..., from piccolo's COPY LINK)
+// through its beacon. The host must have PAIR A DEVICE open (else it "isn't
+// online"). The host remembers the beacon: later connections go through it
+// when the host isn't on the LAN. False if the link isn't one or it can't start.
+bool hosts_pair_link(Hosts* hosts, const char* link, const char* code);
+// Whether `text` is a pair link (PAIR's field takes an address or a link).
+bool hosts_is_pair_link(const char* text);
+// Reachable now: on the LAN, or through its beacon.
+bool hosts_reachable(const KnownHost* host);
 // Connect to a paired host (entering GAMEPAD...) / leave it. The speed test
 // runs once it's ready (once per run for each host).
 bool hosts_connect(Hosts* hosts, int32_t index);
