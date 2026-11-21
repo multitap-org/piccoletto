@@ -7,13 +7,18 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#if defined(SDL_PLATFORM_EMSCRIPTEN)
+#include <emscripten/emscripten.h>
+#endif
 
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 
+#include "app_loop.h"
 #include "app_paths.h"
 #include "app_settings.h"
 #include "app_shell.h"
+#include "app_storage.h"
 #include "ports_overlay.h"
 #include "gamepad_screen.h"
 #include "haptics.h"
@@ -129,11 +134,13 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         *shown = HomeHost{};
         shown->name = host->name.c_str();
         shown->online = host->online;
+        // Across the internet: paired that way, or anything in a browser (no LAN there).
+        shown->internet = !host->online && (host->internet || !app->hosts.lan);
         shown->access.gamepad = true;
         shown->access.remote_play = net_access_allows(host->access, NetAccessLevel::stream);
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
-        shown->can_measure = host->online;
+        shown->can_measure = host->online || shown->internet;
         shown->measuring = hosts_measuring(&app->hosts, static_cast<int32_t>(i));
         count++;
     }
@@ -251,6 +258,11 @@ static void rotate(App* app)
     SDL_SetHint(SDL_HINT_ORIENTATIONS, other);
     SDL_SetWindowResizable(app->shell.window, false);
     SDL_SetWindowResizable(app->shell.window, true);
+#elif defined(SDL_PLATFORM_EMSCRIPTEN)
+    // The browser: the page locks the screen's orientation (phones, and only
+    // in full screen; elsewhere the browser says no and nothing turns).
+    (void)app;
+    emscripten_run_script(width > height ? "piccoletto_page_rotate('portrait')" : "piccoletto_page_rotate('landscape')");
 #else
     SDL_SetWindowSize(app->shell.window, height, width);
 #endif
@@ -611,7 +623,16 @@ static NavAction draw_pair(App* app)
         hosts->pair = PairStatus::idle;
     }
     app->last_pair = hosts->pair;
-    if (done)
+    if (done && app->pair.typing_address && hosts_is_pair_link(app->pair.address))
+    {
+        // A pair link: across the internet, met through the host's beacon.
+        if (!hosts_pair_link(hosts, app->pair.address, app->pair.code))
+        {
+            hosts->pair = PairStatus::failed;
+            hosts->refusal = NetClientRefusal::connection;
+        }
+    }
+    else if (done)
     {
         NetAddress address;
         bool have = false;
@@ -953,9 +974,84 @@ static bool parse_aspect(const char* text, RemoteStream* stream)
     return true;
 }
 
+// One frame: called by app_loop_run until it returns false (a plain loop on
+// the desktop and Android, the browser's animation frames in the web build).
+static bool app_frame(void* data)
+{
+    App* app = static_cast<App*>(data);
+    if (!app->running)
+    {
+        return false;
+    }
+    handle_events(app);
+    if (!app_shell_begin_frame(&app->shell))
+    {
+        return app->running;
+    }
+    const ImGuiIO& io = ImGui::GetIO();
+    app->ui.scale = touch_ui_scale_for(io.DisplaySize.x, io.DisplaySize.y);
+    apply_settings(app);
+    real_gamepad_update(&app->gamepad);
+    double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
+    update_gamepad_ui(app, now);
+    hosts_update(&app->hosts, now);
+    // The modes need the host (Andrés): when the connection drops, or
+    // can't be made, back to HOME.
+    bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
+    if (in_mode && app->hosts.link == LinkStatus::failed && !app->testing)
+    {
+        SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
+        go_to(app, Screen::home);
+    }
+    // The host changed this phone's level while it plays (the access
+    // event; the host already stopped what the new level doesn't allow).
+    if (app->screen == Screen::remote_play && !selected_allows(app, NetAccessLevel::stream) && !app->testing)
+    {
+        SDL_Log("Network: %s took REMOTE PLAY away: GAMEPAD", selected_host(app));
+        go_to(app, Screen::gamepad);
+    }
+    if (app->devices_open && !selected_full_access(app) && !app->testing)
+    {
+        app->devices_open = false;
+    }
+    update_stream(app);
+    draw_screen(app);
+    stream_view_record(&app->stream_view, &app->shell);
+    send_pad(app);
+    if (app->fingers.presses > 0 && app->settings.vibrate)
+    {
+        haptics_buzz(&app->haptics);
+    }
+    touch_fingers_end_frame(&app->fingers);
+
+    uint32_t background = app->ui.palette.background;
+    ClearColor clear = {static_cast<float>((background >> 16) & 0xFFu) / 255.0f,
+                        static_cast<float>((background >> 8) & 0xFFu) / 255.0f,
+                        static_cast<float>(background & 0xFFu) / 255.0f, 1.0f};
+    if (!app_shell_present(&app->shell, clear))
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Fatal rendering error, exiting");
+        return false;
+    }
+    return app->running;
+}
+
+// The browser is leaving (app_loop_on_leave): what piccoletto writes when a
+// screen closes, written now, since its exit never runs there (a layout being
+// edited, SETTINGS). The paired hosts are written when they change.
+static void app_save_on_leave(void* data, bool unloading)
+{
+    (void)unloading;
+    App* app = static_cast<App*>(data);
+    save_settings(app);
+    save_layouts(app);
+    app_storage_flush();
+}
+
 int main(int argc, char** argv)
 {
     SDL_Log("piccoletto %s", PICCOLETTO_VERSION);
+    app_storage_init("piccoletto");   // the browser: piccoletto's folder on OPFS
 
     App* app = new App{};
     pad_layouts_init(&app->layouts);
@@ -1034,6 +1130,7 @@ int main(int argc, char** argv)
         delete app;
         return 1;
     }
+    app_loop_prepare_window(app->shell.window);
     ImGui::GetIO().IniFilename = nullptr;   // no window layout to remember: every screen is full screen
     // Gamepads for navigation are handed over by hand (update_gamepad_ui), none until then.
     ImGui_ImplSDL3_SetGamepadMode(ImGui_ImplSDL3_GamepadMode_Manual, nullptr, 0);
@@ -1074,63 +1171,25 @@ int main(int argc, char** argv)
 #endif
     }
 
+#if defined(SDL_PLATFORM_EMSCRIPTEN)
+    // The browser: a page opened with a pair link after '#' (a QR code, the
+    // link a desktop piccolo copies) opens PAIR with it filled in.
+    {
+        const char* hash = emscripten_run_script_string("location.hash");
+        if (hash != nullptr && hosts_is_pair_link(hash))
+        {
+            std::string link = std::string("https://get-piccolo.app/pair") + hash;
+            pair_screen_set_address(&app->pair, link.c_str());
+            first = Screen::pair;
+        }
+    }
+#endif
     go_to(app, first);
     app->editor.active = edit && (first == Screen::gamepad || first == Screen::remote_play);
     app->devices_open = open_devices;
     app->running = true;
-    while (app->running)
-    {
-        handle_events(app);
-        if (!app_shell_begin_frame(&app->shell))
-        {
-            continue;
-        }
-        const ImGuiIO& io = ImGui::GetIO();
-        app->ui.scale = touch_ui_scale_for(io.DisplaySize.x, io.DisplaySize.y);
-        apply_settings(app);
-        real_gamepad_update(&app->gamepad);
-        double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
-        update_gamepad_ui(app, now);
-        hosts_update(&app->hosts, now);
-        // The modes need the host (Andrés): when the connection drops, or
-        // can't be made, back to HOME.
-        bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
-        if (in_mode && app->hosts.link == LinkStatus::failed && !app->testing)
-        {
-            SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
-            go_to(app, Screen::home);
-        }
-        // The host changed this phone's level while it plays (the access
-        // event; the host already stopped what the new level doesn't allow).
-        if (app->screen == Screen::remote_play && !selected_allows(app, NetAccessLevel::stream) && !app->testing)
-        {
-            SDL_Log("Network: %s took REMOTE PLAY away: GAMEPAD", selected_host(app));
-            go_to(app, Screen::gamepad);
-        }
-        if (app->devices_open && !selected_full_access(app) && !app->testing)
-        {
-            app->devices_open = false;
-        }
-        update_stream(app);
-        draw_screen(app);
-        stream_view_record(&app->stream_view, &app->shell);
-        send_pad(app);
-        if (app->fingers.presses > 0 && app->settings.vibrate)
-        {
-            haptics_buzz(&app->haptics);
-        }
-        touch_fingers_end_frame(&app->fingers);
-
-        uint32_t background = app->ui.palette.background;
-        ClearColor clear = {static_cast<float>((background >> 16) & 0xFFu) / 255.0f,
-                            static_cast<float>((background >> 8) & 0xFFu) / 255.0f,
-                            static_cast<float>(background & 0xFFu) / 255.0f, 1.0f};
-        if (!app_shell_present(&app->shell, clear))
-        {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Fatal rendering error, exiting");
-            break;
-        }
-    }
+    app_loop_on_leave(app_save_on_leave, app);
+    app_loop_run(app_frame, app);   // the browser: never returns
 
     go_to(app, Screen::home);   // saves what the current screen holds (settings, a layout being edited)
     haptics_close(&app->haptics);

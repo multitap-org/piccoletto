@@ -24,6 +24,12 @@ void pair_screen_reset(PairScreen* pair)
     pair->code[0] = '\0';
 }
 
+void pair_screen_set_address(PairScreen* pair, const char* text)
+{
+    std::snprintf(pair->address, sizeof(pair->address), "%s", text);
+    pair->typing_address = true;
+}
+
 // The address field: an ImGui text field in the screen's colors, like
 // SETTINGS' name field; the keyboard comes up on a phone.
 static void address_field(PairScreen* pair, const TouchUi* ui, float x, float y, float width)
@@ -40,7 +46,7 @@ static void address_field(PairScreen* pair, const TouchUi* ui, float x, float y,
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
     ImGui::SetNextItemWidth(std::floor((width - 20.0f) * scale));
-    ImGui::InputTextWithHint("##pair_address", "192.168.1.20", pair->address, sizeof(pair->address),
+    ImGui::InputTextWithHint("##pair_address", "192.168.1.20 OR THE PAIR LINK", pair->address, sizeof(pair->address),
                              ImGuiInputTextFlags_CharsNoBlank);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(3);
@@ -97,8 +103,8 @@ static float draw_pick(PairScreen* pair, const TouchUi* ui, const char* const* f
         draw_outline(ui, x, y, width, ROW_HEIGHT);
         return y + ROW_HEIGHT + GAP;
     }
-    char address_label[48];
-    std::snprintf(address_label, sizeof(address_label), "OR TYPE AN ADDRESS %s", PIXEL_FONT_UTF8_ARROW_RIGHT);
+    char address_label[64];
+    std::snprintf(address_label, sizeof(address_label), "OR TYPE AN ADDRESS / PASTE A LINK %s", PIXEL_FONT_UTF8_ARROW_RIGHT);
     float address_width = touch_ui_text_width(ui, address_label, TouchText::normal) + 8.0f;
     if (touch_ui_button(ui, "##address", x, y, address_width, 24.0f, address_label, TouchButton::plain, TouchText::normal))
     {

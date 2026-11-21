@@ -121,7 +121,15 @@ android/           build-librashader.sh: librashader for arm64 Android (rustup's
                    no Vulkan or librashader: the SHIELD Portable / Tegra 4), res-legacy (LEGACY banner)
 assets/branding/   icon (android/: adaptive), logo, TV banner light / dark (README: colors, type, how to export)
 flatpak/           site.multitap.piccoletto.yml (the Linux desktop build; assets/linux: .desktop, metainfo)
-.github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64)
+web/               the browser build: build.sh (Emscripten, WebGL 2, pthreads; MULTITAP_GPU_VULKAN=OFF) ->
+                   web/build/wasm/piccoletto.{js,wasm}; page/ (index.html, piccoletto-page.js: full screen at the
+                   first touch, wake lock, ROTATE through the orientation lock; manifest). The page's shared half
+                   (start, OPFS, sw.js) and app_loop / app_storage are frontends-common's; piccolo's
+                   web/package.sh (PICCOLETTO=<this checkout>) puts it in the web zip as piccoletto/. In a
+                   browser there's no LAN: hosts are paired with their pair link (PAIR's field, or the page
+                   opened with #k=...) and met through the beacon (WebRTC)
+.github/workflows/ android.yml (the APK, build-apk.sh with the NDK's clang), flatpak.yml (x86_64 + aarch64),
+                   web.yml (the browser build)
 tests/             hosts_test.cpp (hosts against a host in the same process: pairing, connecting, discovery)
 tools/             lsan-suppressions.txt
 ```
@@ -143,6 +151,7 @@ cmake --build build && ctest --test-dir build
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMULTITAP_WARNINGS_AS_ERRORS=ON -DMULTITAP_SANITIZE=ON
 cmake --build build-asan && (cd build-asan && LSAN_OPTIONS=suppressions=$PWD/../tools/lsan-suppressions.txt ctest)
 ./build/piccoletto        # a phone-shaped window; normal builds also copy it to ~/.local/share/piccoletto/
+web/build.sh              # the browser (emsdk 6.0.13 sourced) -> web/build/wasm/piccoletto.{js,wasm}
 android/build-apk.sh      # -> android/build/piccoletto.apk (adb install --no-incremental -r ...; adb logcat -s SDL)
 adb shell "am start -S -n site.multitap.piccoletto/.PiccolettoActivity --es args '--screen gamepad'"
 adb exec-out screencap -p > shot.png   # screenshots from the device (not spectacle)
@@ -170,6 +179,12 @@ ASan/UBSan reports, resizing (portrait <-> landscape) and quitting work.
   translations yet; FORGET only logs).
 - Not yet: opacity / quality while streaming, translations.
 - Every screen, EDIT LAYOUT and SETTINGS are on main (merged 2026-11-19).
+- Across the internet (branch `wasm`, 2026-11-21): PAIR takes a pair link
+  (hosts_pair_link: the beacon's pairing room), a host met that way (or any
+  host in a browser) shows INTERNET on HOME and connects through its beacon
+  (UDP-less: WebRTC through the signaling). The browser build (web/) on the
+  same branch: paired with net_probe through beacon.get-piccolo.app and played
+  GAMEPAD over WebRTC from headless Firefox. Remote play from a browser: untested.
 - Never switch branches in a checkout another session may be using (piccolo's
   main folder): use a worktree.
 - Next: Android build (piccolo's `android` branch has the SDL setup; Andrés
