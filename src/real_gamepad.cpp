@@ -4,9 +4,7 @@
 
 #include "retropad.h"
 
-// A stick counts as held past this (so a resting stick doesn't light), a
-// trigger as pressed past half way.
-constexpr float STICK_DEADZONE    = 0.2f;
+// A trigger counts as pressed past half way; the sticks go to the host as they are.
 constexpr float TRIGGER_THRESHOLD = 0.5f;
 
 static void add(RealGamepad* pads, SDL_JoystickID id)
