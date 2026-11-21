@@ -10,7 +10,7 @@
 #include "host_fs.h"
 
 // Lightest first (see the header). Keys are paths under shaders/presets.
-static const ShaderPreset PRESETS[] = {
+static const ShaderPreset SLANG_PRESETS[] = {
     {"", "NONE"},
     {"handheld/zfast-lcd.slangp", "ZFAST LCD"},
     {"crt/zfast-crt.slangp", "ZFAST CRT"},
@@ -30,20 +30,36 @@ static const ShaderPreset PRESETS[] = {
     {"crt/crt-guest-advanced-fast.slangp", "CRT GUEST FAST"},
     {"crt/crt-royale.slangp", "CRT ROYALE"},
 };
-constexpr int32_t PRESET_COUNT = static_cast<int32_t>(sizeof(PRESETS) / sizeof(PRESETS[0]));
+constexpr int32_t SLANG_PRESET_COUNT = static_cast<int32_t>(sizeof(SLANG_PRESETS) / sizeof(SLANG_PRESETS[0]));
 
-int32_t shader_preset_count()
+// OpenGL ES, lightest first. Keys are paths under shaders/gl.
+static const ShaderPreset GL_PRESETS[] = {
+    {"", "NONE"},
+    {"scanlines.glpreset", "SCANLINES"},
+    {"lcd3x.glpreset", "LCD3X"},
+    {"dot.glpreset", "DOT"},
+    {"crt-mask.glpreset", "CRT MASK"},
+};
+constexpr int32_t GL_PRESET_COUNT = static_cast<int32_t>(sizeof(GL_PRESETS) / sizeof(GL_PRESETS[0]));
+
+int32_t shader_preset_count(bool gl)
 {
-    return PRESET_COUNT;
+    return gl ? GL_PRESET_COUNT : SLANG_PRESET_COUNT;
 }
 
-const ShaderPreset* shader_preset(int32_t index)
+const ShaderPreset* shader_preset(bool gl, int32_t index)
 {
-    if (index < 0 || index >= PRESET_COUNT)
+    const ShaderPreset* presets = gl ? GL_PRESETS : SLANG_PRESETS;
+    if (index < 0 || index >= shader_preset_count(gl))
     {
-        return &PRESETS[0];
+        return &presets[0];
     }
-    return &PRESETS[index];
+    return &presets[index];
+}
+
+const char* shader_presets_folder(bool gl)
+{
+    return gl ? "gl" : "presets";
 }
 
 // The folder part of a path ("a/b/c.slang" -> "a/b").
@@ -57,7 +73,7 @@ bool shader_presets_unpack(const char* folder, const char* version)
 {
     // The list in the APK (on Android a relative path reads the APK's assets).
     size_t list_size = 0;
-    char* list = static_cast<char*>(SDL_LoadFile("shaders/presets.txt", &list_size));
+    char* list = static_cast<char*>(SDL_LoadFile("shaders/files.txt", &list_size));
     if (list == nullptr)
     {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "Shaders: no preset list in the APK (%s)", SDL_GetError());
@@ -95,8 +111,8 @@ bool shader_presets_unpack(const char* folder, const char* version)
             continue;
         }
         size_t size = 0;
-        void* data = SDL_LoadFile(("shaders/presets/" + file).c_str(), &size);
-        std::string target = root + "/presets/" + file;
+        void* data = SDL_LoadFile(("shaders/" + file).c_str(), &size);
+        std::string target = root + "/" + file;
         if (data == nullptr || !host_fs_make_directories(parent_of(&target).c_str()) ||
             !SDL_SaveFile(target.c_str(), data, size))
         {
@@ -113,15 +129,16 @@ bool shader_presets_unpack(const char* folder, const char* version)
     {
         SDL_SaveFile(marker_path.c_str(), wanted.data(), wanted.size());
     }
-    SDL_Log("Shaders: %u preset files copied to %s/presets", copied, folder);
+    SDL_Log("Shaders: %u preset files copied to %s", copied, folder);
     return ok;
 }
 
-int32_t shader_preset_find(const char* key)
+int32_t shader_preset_find(bool gl, const char* key)
 {
-    for (int32_t i = 0; i < PRESET_COUNT; i++)
+    int32_t count = shader_preset_count(gl);
+    for (int32_t i = 0; i < count; i++)
     {
-        if (std::strcmp(PRESETS[i].key, key) == 0)
+        if (std::strcmp(shader_preset(gl, i)->key, key) == 0)
         {
             return i;
         }

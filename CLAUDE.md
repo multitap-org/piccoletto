@@ -50,7 +50,8 @@ piccoletto builds on its own: every dependency is a submodule in `deps/`.
 - third-party: `deps/SDL`, `deps/imgui`, `deps/libsamplerate`, `deps/gamemode`, `deps/enet` (zpl-c's, IPv6), `deps/monocypher`,
   `deps/beacon` (multitap-beacon: across the internet) (frontends-common needs them),
   `deps/librashader` (its MIT C header; the library is built for Android by android/build-librashader.sh and loaded at
-  run time), `deps/piccolo-shaders` (the curated presets, branch `piccolo`)
+  run time), `deps/piccolo-shaders` (the curated presets, branch `piccolo`), `deps/piccolo-shaders-legacy` (the OpenGL ES
+  `.glpreset` presets for the legacy APK and the browser; piccolo uses them too)
 
 **Sharing with piccolo:** what both need is moved out of piccolo into a
 library, never copied: the look into retroui, frontend plumbing into
@@ -103,7 +104,9 @@ src/remote_play_screen.* REMOTE PLAY: the picture as big as the stream's aspect 
 src/stream_view.*       REMOTE PLAY's picture: the newest decoded frame (no queue) in a texture of the core's
                         format, drawn with frontends-common's Picture (sharp bilinear) or a shader preset
                         (shader_chain); audio plays on the thread
-src/shader_presets.*    REMOTE PLAY SHADER: the curated presets (deps/piccolo-shaders) lightest first; on Android
+src/shader_presets.*    REMOTE PLAY SHADER: the curated presets lightest first, one list per GPU path (Vulkan: slang,
+                        deps/piccolo-shaders, shaders/presets; OpenGL ES: .glpreset, deps/piccolo-shaders-legacy,
+                        shaders/gl); on Android
                         copied out of the APK to the app's folder (librashader reads plain files)
 src/ports_overlay.*     who plays on the host's ports, drawn by retroui's ports_view (same as piccolo): tabs over
                         GAMEPAD / REMOTE PLAY when a port changes (any level: devices_watch, read only), and

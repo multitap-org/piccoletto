@@ -119,19 +119,19 @@ NavAction quick_menu_draw(QuickMenu* menu, const TouchUi* ui, const QuickMenuInp
         y = label(ui, x, y, "SHADER");
         if (touch_ui_button(ui, "##quick_shader_less", x, y, row, row, "-", TouchButton::normal, TouchText::normal))
         {
-            int32_t count = shader_preset_count();
+            int32_t count = shader_preset_count(settings->shader_gl);
             settings->shader = (settings->shader + count - 1) % count;
             menu->settings_changed = true;
         }
         touch_ui_rect(ui, x + row + MENU_GAP, y, inner - 2.0f * (row + MENU_GAP), row, palette->field_face);
-        const char* shader = shader_preset(settings->shader)->label;
+        const char* shader = shader_preset(settings->shader_gl, settings->shader)->label;
         float shader_x = x + (inner - touch_ui_text_width(ui, shader, TouchText::normal)) * 0.5f;
         touch_ui_text(ui, std::floor(shader_x), touch_ui_centered_text_y(ui, y, row, TouchText::normal), shader,
                       palette->text, TouchText::normal);
         if (touch_ui_button(ui, "##quick_shader_more", x + inner - row, y, row, row, "+", TouchButton::normal,
                             TouchText::normal))
         {
-            settings->shader = (settings->shader + 1) % shader_preset_count();
+            settings->shader = (settings->shader + 1) % shader_preset_count(settings->shader_gl);
             menu->settings_changed = true;
         }
         y += row + MENU_GAP;

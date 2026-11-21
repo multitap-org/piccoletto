@@ -157,11 +157,11 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
 
     // Lightest first; - / + step through them.
     y = label(ui, x, y, "REMOTE PLAY SHADER");
-    const char* shader_steps[3] = {"-", shader_preset(settings->shader)->label, "+"};
+    const char* shader_steps[3] = {"-", shader_preset(settings->shader_gl, settings->shader)->label, "+"};
     int32_t shader = choices(ui, "##shader", shader_steps, 3, 1, x, y, column);
     if (shader == 0 || shader == 2)
     {
-        int32_t count = shader_preset_count();
+        int32_t count = shader_preset_count(settings->shader_gl);
         settings->shader = (settings->shader + (shader == 0 ? count - 1 : 1)) % count;
     }
     y += CONTROL + ROW_GAP;

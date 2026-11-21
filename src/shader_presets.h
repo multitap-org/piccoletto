@@ -1,32 +1,42 @@
 #pragma once
 
-// REMOTE PLAY's shaders (SETTINGS > REMOTE PLAY SHADER): piccolo's curated
-// slang presets (deps/piccolo-shaders, each file under its own license), run
-// on the phone over the exact picture the host streams, through
-// frontends-common's shader_chain (librashader, loaded at run time; without
-// it the picture is drawn as before). Listed lightest first: a phone's GPU
-// (the SHIELD's Tegra X1) runs the light ones at full speed, the heavy CRTs
-// may not keep up.
+// REMOTE PLAY's shaders (SETTINGS > REMOTE PLAY SHADER), run on the phone
+// over the exact picture the host streams. Two lists, one per GPU path:
 //
-// Where they are: next to the program in shaders/presets (CMake copies them
-// there; on Android build-apk.sh puts them in the APK and the app copies them
-// out to its own folder, since librashader reads plain files).
+//   Vulkan:     piccolo's curated slang presets (deps/piccolo-shaders, each
+//               file under its own license) through frontends-common's
+//               shader_chain (librashader, loaded at run time; without it the
+//               picture is drawn as before), in shaders/presets.
+//   OpenGL ES:  the .glpreset presets (deps/piccolo-shaders-legacy) through
+//               gl_shader_chain (the legacy APK, the browser, the GL
+//               fallback), in shaders/gl.
+//
+// Listed lightest first: a phone's GPU (the SHIELD's Tegra X1) runs the light
+// ones at full speed, the heavy CRTs may not keep up.
+//
+// Where they are: next to the program in shaders/ (CMake copies them there;
+// on Android build-apk.sh puts them in the APK and the app copies them out to
+// its own folder, since librashader reads plain files; the browser build
+// preloads shaders/gl).
 
 #include <cstdint>
 
 struct ShaderPreset
 {
-    const char* key;     // the file under shaders/presets ("" = none); what piccoletto.cfg keeps
+    const char* key;     // the file under its folder ("" = none); what piccoletto.cfg keeps
     const char* label;   // what SETTINGS shows
 };
 
-int32_t shader_preset_count();
-const ShaderPreset* shader_preset(int32_t index);
+// `gl`: the OpenGL ES list (.glpreset), else the Vulkan one (.slangp).
+int32_t shader_preset_count(bool gl);
+const ShaderPreset* shader_preset(bool gl, int32_t index);
 // The preset's index for a key (0, NONE, when it isn't known).
-int32_t shader_preset_find(const char* key);
+int32_t shader_preset_find(bool gl, const char* key);
+// The list's folder under shaders/: "presets" (Vulkan) or "gl".
+const char* shader_presets_folder(bool gl);
 
-// Android: copies the presets out of the APK (assets shaders/presets, listed
-// in shaders/presets.txt) into `folder`/presets, when that list or `version`
-// changed since the last time (a marker file says what's there). False
-// (logged) if it couldn't; the old copy, if any, stays.
+// Android: copies the presets out of the APK (assets under shaders/, listed
+// in shaders/files.txt relative to it) into `folder`, when that list or
+// `version` changed since the last time (a marker file says what's there).
+// False (logged) if it couldn't; the old copy, if any, stays.
 bool shader_presets_unpack(const char* folder, const char* version);

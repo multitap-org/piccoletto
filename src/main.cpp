@@ -64,7 +64,7 @@ struct App
     RemoteStream   stream     = {};   // the stream's shape (placeholder until there's one)
     StreamView     stream_view = {};  // REMOTE PLAY's picture
     ShaderLibrary  shader_library = {};   // librashader, when it's there (REMOTE PLAY SHADER)
-    std::string    presets_dir;           // shaders/presets next to the program
+    std::string    presets_dir;           // the GPU path's presets: shaders/presets (Vulkan) or shaders/gl
     int32_t        shader_applied = -1;   // the preset index stream_view has (-1 = none asked yet)
     std::string    shader_path;           // its file
     NetClientStreamStats stream_last = {};   // the stream's counts a second ago
@@ -899,7 +899,7 @@ static void update_stream(App* app)
     if (app->settings.shader != app->shader_applied)
     {
         app->shader_applied = app->settings.shader;
-        const ShaderPreset* preset = shader_preset(app->settings.shader);
+        const ShaderPreset* preset = shader_preset(app->settings.shader_gl, app->settings.shader);
         app->shader_path = preset->key[0] != '\0' ? app->presets_dir + "/" + preset->key : std::string();
         stream_view_set_shader(view, &app->shader_library, &app->shell, app->shader_path.c_str());
     }
@@ -1143,6 +1143,8 @@ int main(int argc, char** argv)
     }
 #endif
     find_files(app);
+    // The shader list follows the GPU path (OpenGL ES: .glpreset).
+    app->settings.shader_gl = app->shell.api == GpuApi::gl;
     load_files(app);
     if (!app->settings_dir.empty())
     {
@@ -1157,7 +1159,7 @@ int main(int argc, char** argv)
         if (base != nullptr)
         {
             folders.push_back(base);
-            app->presets_dir = std::string(base) + "shaders/presets";
+            app->presets_dir = std::string(base) + "shaders/" + shader_presets_folder(app->settings.shader_gl);
         }
         shader_library_load(&app->shader_library, folders);
 #if defined(SDL_PLATFORM_ANDROID)
@@ -1166,7 +1168,7 @@ int main(int argc, char** argv)
         {
             std::string shaders = app->settings_dir + "/../shaders";
             shader_presets_unpack(shaders.c_str(), PICCOLETTO_VERSION);
-            app->presets_dir = shaders + "/presets";
+            app->presets_dir = shaders + "/" + shader_presets_folder(app->settings.shader_gl);
         }
 #endif
     }

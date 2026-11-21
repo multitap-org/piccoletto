@@ -69,7 +69,9 @@ void stream_view_update(StreamView* view, Hosts* hosts, AppShell* shell)
 void stream_view_set_shader(StreamView* view, const ShaderLibrary* library, AppShell* shell, const char* preset_path)
 {
     view->library = library;
-    if (library == nullptr || !library->loaded)
+    // Vulkan needs librashader; OpenGL ES runs its presets itself (the legacy
+    // APK and the browser have no librashader).
+    if (shell->api != GpuApi::gl && (library == nullptr || !library->loaded))
     {
         return;
     }
