@@ -207,7 +207,8 @@ static void pump_once(Pump* pump)
             net_access_send(pump->access, event.peer, NetChannel::control, out, size);
         }
         else if (event.channel == NetChannel::control &&
-                 net_settings_read_devices_request(event.data, event.size, &id))
+                 (net_settings_read_devices_request(event.data, event.size, &id) ||
+                  net_settings_read_devices_watch(event.data, event.size, &id)))   // (as piccolo: any level reads)
         {
             pump->devices_requests++;
             host_send_devices(pump, event.peer, id);

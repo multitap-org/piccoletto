@@ -93,7 +93,7 @@ src/touch_ui.*          flat touch widgets: screen / overlay, text (normal / big
 src/screens.h           Screen, NavAction (what a tap asks for)
 src/title_bar.*         the title bar's row: back (every screen but HOME), the host in the middle (pads), the
                         icons (+ = PAIR A DEVICE with the found count, rotate, ☰; + off on the pads); the pads'
-                        port LEDs + ping in the bottom left
+                        port LEDs + ping in the bottom left (retroui's port_indicators.h)
 src/home_screen.*       HOME: card of the selected host with its granted modes; the other hosts in a sidebar,
                         closed to a tab at the right (landscape) or a bar at the bottom (portrait), up to 80%
 src/pair_screen.*       PAIR: pick a found host (or type an address), 6-digit code, keypad, how pairing goes
@@ -112,8 +112,9 @@ src/stream_view.*       REMOTE PLAY's picture: the newest decoded frame (no queu
                         (shader_chain); audio plays on the thread
 src/shader_presets.*    REMOTE PLAY SHADER: the curated presets (deps/piccolo-shaders) lightest first; on Android
                         copied out of the APK to the app's folder (librashader reads plain files)
-src/devices_overlay.*   DEVICES over GAMEPAD / REMOTE PLAY (☰, FULL access), see-through: the host's ports and who
-                        plays on each (devices / device_port), tap a device then MOVE HERE
+src/ports_overlay.*     who plays on the host's ports, drawn by retroui's ports_view (same as piccolo): tabs over
+                        GAMEPAD / REMOTE PLAY when a port changes (any level: devices_watch, read only), and
+                        DEVICES (☰, FULL access): tap a device, then its new port (device_port)
 src/quick_menu.*        the quick menu over GAMEPAD / REMOTE PLAY (replaces their title bar): a sidebar from the right,
                         opened by the see-through arrow at the top right or holding START 1 s; switch, SHADER, PACING,
                         EDIT LAYOUT, DEVICES, TOUCH CONTROLS, ROTATE, LEAVE

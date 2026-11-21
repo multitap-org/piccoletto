@@ -150,7 +150,7 @@ set(PICCOLETTO_SOURCES
     src/stream_view.cpp
     src/shader_presets.cpp
     src/pair_screen.cpp
-    src/devices_overlay.cpp
+    src/ports_overlay.cpp
     src/pad_layouts.cpp
     src/pad_editor.cpp
     src/app_settings.cpp

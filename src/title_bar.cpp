@@ -4,6 +4,7 @@
 #include <cstdio>
 
 #include "pixel_font_imgui.h"   // PIXEL_FONT_UTF8_MENU, _ROTATE, _ARROW_LEFT
+#include "port_indicators.h"
 
 constexpr int32_t ICON_COUNT = 3;
 
@@ -84,19 +85,17 @@ bool title_bar_back(const TouchUi* ui)
                            PIXEL_FONT_UTF8_ARROW_LEFT, TouchButton::plain, TouchText::big);
 }
 
-constexpr float LED_SIZE = 5.0f;   // a letter's height, like TOUCH_UI_LAMP
-constexpr float LED_GAP  = 3.0f;
-
+// The LEDs and the ping bars: retroui's port_indicators.h (piccolo's tabs draw the same).
 float title_bar_port_leds(const TouchUi* ui, float x, float y, int32_t port)
 {
     const RetroUiPalette* palette = &ui->palette;
     for (int32_t i = 0; i < TITLE_BAR_PORTS; i++)
     {
         bool lit = i + 1 == port;
-        touch_ui_rect(ui, x + static_cast<float>(i) * (LED_SIZE + LED_GAP), y + 2.0f, LED_SIZE, LED_SIZE,
-                      lit ? TOUCH_UI_LAMP_ONLINE : palette->panel_dark);
+        touch_ui_rect(ui, x + static_cast<float>(i) * (PORT_LED_SIZE + PORT_LED_GAP), y + 2.0f, PORT_LED_SIZE, PORT_LED_SIZE,
+                      lit ? PORT_LED_ON : palette->panel_dark);
     }
-    return static_cast<float>(TITLE_BAR_PORTS) * (LED_SIZE + LED_GAP) - LED_GAP;
+    return static_cast<float>(TITLE_BAR_PORTS) * (PORT_LED_SIZE + PORT_LED_GAP) - PORT_LED_GAP;
 }
 
 void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb)
@@ -105,14 +104,6 @@ void title_bar_host(const TouchUi* ui, const char* host, uint32_t text_argb)
     float y = touch_ui_centered_text_y(ui, title_bar_y(ui), TITLE_BAR_ICON, TouchText::normal);
     touch_ui_text(ui, x, y, host, text_argb, TouchText::normal);
 }
-
-constexpr uint32_t PING_GOOD  = TOUCH_UI_LAMP_ONLINE;   // green
-constexpr uint32_t PING_FAIR  = 0xFFFFC83Cu;            // yellow
-constexpr uint32_t PING_BAD   = 0xFFE84848u;            // red
-constexpr uint32_t PING_GOOD_MS = 16;
-constexpr uint32_t PING_FAIR_MS = 48;
-constexpr float    BAR_WIDTH  = 3.0f;
-constexpr float    BAR_GAP    = 1.0f;
 
 // The text after the bars.
 static void ping_text(const PadLink* link, char* out, size_t capacity)
@@ -180,7 +171,8 @@ static void ping_text(const PadLink* link, char* out, size_t capacity)
     }
 }
 
-constexpr float BARS_WIDTH = 3.0f * BAR_WIDTH + 2.0f * BAR_GAP + 5.0f;   // with the gap before the text
+constexpr float BARS_WIDTH = static_cast<float>(PING_BARS) * PING_BAR_WIDTH +
+                             static_cast<float>(PING_BARS - 1) * PING_BAR_GAP + 5.0f;   // with the gap before the text
 
 float title_bar_ping_width(const TouchUi* ui, const PadLink* link)
 {
@@ -192,20 +184,19 @@ float title_bar_ping_width(const TouchUi* ui, const PadLink* link)
 float title_bar_ping(const TouchUi* ui, float x, float y, const PadLink* link, uint32_t text_argb)
 {
     const RetroUiPalette* palette = &ui->palette;
-    int32_t lit = 0;
+    uint32_t lit = 0;
     uint32_t color = palette->panel_dark;
     if (link->state == LinkShown::ready)
     {
-        uint32_t ping_ms = link->ping_ms;
-        lit = ping_ms < PING_GOOD_MS ? 3 : (ping_ms < PING_FAIR_MS ? 2 : 1);
-        color = ping_ms < PING_GOOD_MS ? PING_GOOD : (ping_ms < PING_FAIR_MS ? PING_FAIR : PING_BAD);
+        lit = ping_bars_lit(link->ping_ms);
+        color = ping_color(link->ping_ms);
     }
     // Rising bars, bottoms level with the letters' (rows 2..6 of the cell).
     float bottom = y + 7.0f;
-    for (int32_t i = 0; i < 3; i++)
+    for (uint32_t i = 0; i < PING_BARS; i++)
     {
-        float height = 3.0f + 2.0f * static_cast<float>(i);
-        touch_ui_rect(ui, x + static_cast<float>(i) * (BAR_WIDTH + BAR_GAP), bottom - height, BAR_WIDTH, height,
+        float height = ping_bar_height(i);
+        touch_ui_rect(ui, x + static_cast<float>(i) * (PING_BAR_WIDTH + PING_BAR_GAP), bottom - height, PING_BAR_WIDTH, height,
                       i < lit ? color : palette->panel_dark);
     }
     char text[96];

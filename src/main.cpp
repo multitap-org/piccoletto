@@ -14,7 +14,7 @@
 #include "app_paths.h"
 #include "app_settings.h"
 #include "app_shell.h"
-#include "devices_overlay.h"
+#include "ports_overlay.h"
 #include "gamepad_screen.h"
 #include "haptics.h"
 #include "home_screen.h"
@@ -51,7 +51,7 @@ struct App
     bool           devices_open = false; // DEVICES over GAMEPAD / REMOTE PLAY (FULL access)
     HomeScreen     home       = {};
     PairScreen     pair       = {};
-    DevicesOverlay devices    = {};
+    PortsOverlay   ports      = {};   // the ports' tabs over the pads, and DEVICES
     std::vector<NetDevice> example_devices;   // --screen devices without a host
     SettingsScreen settings_screen = {};
     PadLayouts     layouts    = {};
@@ -293,6 +293,7 @@ static void go_to(App* app, Screen screen)
     if (mode)
     {
         hosts_connect(&app->hosts, app->home.selected);
+        hosts_request_devices(&app->hosts);   // the ports' tabs (sent once the link is up)
     }
     else if (screen != app->screen)
     {
@@ -364,7 +365,7 @@ static void handle_action(App* app, NavAction action)
             // From the sheet: open it (FULL access only); from DEVICES: close it.
             close_menu(app);
             app->devices_open = !app->devices_open && selected_full_access(app);
-            app->devices = DevicesOverlay{};
+            app->ports.view.has_pick = false;   // DEVICES opens with nothing picked
             if (app->devices_open)
             {
                 hosts_request_devices(&app->hosts);
@@ -637,6 +638,35 @@ static NavAction draw_pair(App* app)
     return action;
 }
 
+// Who plays on the host's ports: its list (`known` once it came), or for
+// testing without a host (--screen devices) an example list.
+static std::vector<NetDevice>* ports_list(App* app, bool* known)
+{
+    std::vector<NetDevice>* example = &app->example_devices;
+    if (!(app->testing && app->hosts.link != LinkStatus::ready))
+    {
+        *known = app->hosts.devices_known;
+        return &app->hosts.devices;
+    }
+    if (example->empty())
+    {
+        static const char* const NAMES[] = {"8BITDO SN30 1", "MY PHONE 1", "ANA'S PHONE 1", "KEYBOARD 1"};
+        static const uint8_t PORTS[] = {1, 2, 4, 1};
+        for (uint32_t i = 0; i < 4; i++)
+        {
+            NetDevice device;
+            device.controller = i;
+            device.kind = i == 3 ? NetDeviceKind::keyboard : (i == 0 ? NetDeviceKind::gamepad : NetDeviceKind::network);
+            device.ports = PORTS[i];
+            device.owner = i == 1 ? NetDeviceOwner::yours : (i == 2 ? NetDeviceOwner::other : NetDeviceOwner::host);
+            device.name = NAMES[i];
+            example->push_back(device);
+        }
+    }
+    *known = true;
+    return example;
+}
+
 static void draw_screen(App* app)
 {
     NavAction action = NavAction::none;
@@ -706,6 +736,20 @@ static void draw_screen(App* app)
         }
     }
     touch_ui_end_screen();
+    // The ports' tabs over the pads (any access level: read only), down
+    // while the sheet or DEVICES covers them.
+    if (app->screen == Screen::gamepad || app->screen == Screen::remote_play)
+    {
+        bool known = false;
+        std::vector<NetDevice>* list = ports_list(app, &known);
+        uint64_t now_ms = SDL_GetTicks();
+        ports_overlay_update(&app->ports, list, known, &link, now_ms);
+        ports_overlay_draw_tabs(&app->ports, &app->ui, app->menu_open || app->devices_open, now_ms);
+    }
+    else if (app->ports.known)
+    {
+        ports_overlay_reset(&app->ports);
+    }
     // HOME's sidebar (landscape) the same way, above HOME.
     if (app->screen == Screen::home && app->home.sidebar_open)
     {
@@ -713,38 +757,23 @@ static void draw_screen(App* app)
         home_sidebar_draw(&app->home, &app->ui, shown, shown_count);
         touch_ui_end_screen();
     }
-    // DEVICES over the pads (the game shows through), in its own window.
+    // DEVICES over the pads (the game shows through). An empty window under
+    // it takes the taps away from the screen; the board reads them itself.
     if (app->devices_open && !app->menu_open)
     {
         touch_ui_begin_overlay(&app->ui, "##devices_window");
-        DevicesMove move;
-        // --screen devices without a host: an example list.
-        std::vector<NetDevice>* example = &app->example_devices;
-        bool use_example = app->testing && app->hosts.link != LinkStatus::ready;
-        if (use_example && example->empty())
-        {
-            static const char* const NAMES[] = {"8BITDO SN30 1", "MY PHONE 1", "ANA'S PHONE 1", "KEYBOARD 1"};
-            static const uint8_t PORTS[] = {1, 2, 4, 1};
-            for (uint32_t i = 0; i < 4; i++)
-            {
-                NetDevice device;
-                device.controller = i;
-                device.kind = i == 3 ? NetDeviceKind::keyboard : (i == 0 ? NetDeviceKind::gamepad : NetDeviceKind::network);
-                device.ports = PORTS[i];
-                device.owner = i == 1 ? NetDeviceOwner::yours : (i == 2 ? NetDeviceOwner::other : NetDeviceOwner::host);
-                device.name = NAMES[i];
-                example->push_back(device);
-            }
-        }
-        const std::vector<NetDevice>* list = use_example ? example : &app->hosts.devices;
-        action = devices_overlay_draw(&app->devices, &app->ui, list, use_example || app->hosts.devices_known, &move);
-        if (use_example && move.move && move.index >= 0)
-        {
-            (*example)[static_cast<size_t>(move.index)].ports = static_cast<uint8_t>(1u << move.port);
-            move.move = false;
-        }
         touch_ui_end_screen();
-        if (move.move && move.index >= 0 && move.index < static_cast<int32_t>(app->hosts.devices.size()))
+        bool known = false;
+        std::vector<NetDevice>* list = ports_list(app, &known);
+        PortsOverlayMove move;
+        NavAction board = ports_overlay_draw_board(&app->ports, &app->ui, list, known, &move);
+        action = board != NavAction::none ? board : action;
+        if (move.move && list == &app->example_devices)
+        {
+            // The example list: moved here (-1 = on no port: out of the list's ports).
+            (*list)[static_cast<size_t>(move.index)].ports = move.port < 0 ? 0 : static_cast<uint8_t>(1u << move.port);
+        }
+        else if (move.move && move.index >= 0 && move.index < static_cast<int32_t>(app->hosts.devices.size()))
         {
             hosts_move_device(&app->hosts, &app->hosts.devices[static_cast<size_t>(move.index)], move.port);
         }

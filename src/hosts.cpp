@@ -152,7 +152,7 @@ bool hosts_create(Hosts* hosts, const char* settings_dir, const char* phone_name
     hosts->ok = true;
     char fingerprint[64];
     net_key_fingerprint(hosts->net.client.our_key, fingerprint, sizeof(fingerprint));
-    SDL_Log("Network: this phone is %s, %zu paired host(s)", fingerprint, hosts->known.size());
+    SDL_Log("Network: this phone is %s, %u paired host(s)", fingerprint, static_cast<unsigned>(hosts->known.size()));
     return true;
 }
 
@@ -556,16 +556,18 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
     }
 }
 
-// devices_request to the host (under the lock).
+// The host's devices list (under the lock): devices_request with FULL access
+// (DEVICES moves them), devices_watch below it (the ports' tabs, read only).
 static void send_devices_request(Hosts* hosts)
 {
-    if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0 ||
-        !net_access_allows(hosts->known[static_cast<size_t>(hosts->linked)].access, NetAccessLevel::full))
+    if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0)
     {
         return;
     }
+    bool full = net_access_allows(hosts->known[static_cast<size_t>(hosts->linked)].access, NetAccessLevel::full);
     uint8_t message[16];
-    size_t size = net_settings_write_devices_request(message, sizeof(message), hosts->next_request++);
+    size_t size = full ? net_settings_write_devices_request(message, sizeof(message), hosts->next_request++)
+                       : net_settings_write_devices_watch(message, sizeof(message), hosts->next_request++);
     if (size > 0)
     {
         net_client_send(&hosts->net.client, NetChannel::control, message, size);
