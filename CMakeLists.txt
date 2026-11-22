@@ -243,7 +243,10 @@ if(NOT ANDROID AND NOT EMSCRIPTEN)
     endif()
 endif()
 
-if(MULTITAP_BUILD_TESTS AND NOT EMSCRIPTEN)
+# Linux only: it runs a beacon in the process (beacon_core), and
+# frontends-common builds the beacon's server code only there (like its own
+# net_beacon test).
+if(MULTITAP_BUILD_TESTS AND NOT EMSCRIPTEN AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # src/hosts.* against a host in the same process over loopback (pairing,
     # connecting, discovery). Its scratch folder is emptied first.
     add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)
