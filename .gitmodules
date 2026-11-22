@@ -45,3 +45,9 @@
 	url = https://github.com/multitap-org/piccolo-shaders-legacy.git
 	branch = main
 	shallow = true
+[submodule "deps/libdatachannel"]
+	path = deps/libdatachannel
+	url = https://github.com/paullouisageneau/libdatachannel.git
+[submodule "deps/mbedtls"]
+	path = deps/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
