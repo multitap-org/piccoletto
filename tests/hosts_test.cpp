@@ -688,9 +688,15 @@ int main(int argc, char** argv)
     {
         pump_once(&pump);
     }
+    // Given STREAM this time (the phone asks for GAMEPAD): PAIR shows and
+    // keeps STREAM (Andrés, 2026-11-22: it kept GAMEPAD).
+    pump.grant = NetAccessLevel::stream;
     net_pair_code_generate(code);
     check(hosts_pair(hosts, address, code) && pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired,
           "paired again");
+    check(hosts->known.size() == 1 && hosts->known[0].access == NetAccessLevel::stream,
+          "given STREAM: the phone keeps STREAM");
+    pump.grant = NetAccessLevel::gamepad;
     check(hosts_connect(hosts, 0) && pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected");
     for (int32_t i = 0; i < 20; i++)
     {
