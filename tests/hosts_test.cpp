@@ -67,6 +67,14 @@ struct Pump
     uint32_t         devices_requests = 0;
     BeaconServer*    beacon_server = nullptr;   // across the internet (the last part)
     BeaconNet*       beacon_net = nullptr;
+    // Pairing requests: the host's user types the phone's code (read from the
+    // phone, as a person would), at `grant`; `wrong_once` types it wrong the
+    // first time (the phone makes a new one and asks again).
+    NetAccessLevel   grant = NetAccessLevel::gamepad;
+    bool             wrong_once = false;
+    uint32_t         requests = 0;
+    std::string      first_code;         // the code the first request of a pairing showed
+    std::string      last_code;          // and the last one
 };
 
 static void host_send_devices(Pump* pump, uint32_t peer, uint32_t id)
@@ -193,6 +201,24 @@ static void pump_once(Pump* pump)
     NetAccessEvent event;
     while (net_access_poll(pump->access, &event))
     {
+        if (event.type == NetAccessEventType::pairing_requested)
+        {
+            char code[NET_PAIR_CODE_DIGITS + 1] = {};
+            hosts_pair_code(pump->hosts, code);
+            pump->requests++;
+            if (pump->requests == 1)
+            {
+                pump->first_code = code;
+            }
+            pump->last_code = code;
+            if (pump->wrong_once)
+            {
+                pump->wrong_once = false;
+                code[NET_PAIR_CODE_DIGITS - 1] = code[NET_PAIR_CODE_DIGITS - 1] == '9' ? '0' : static_cast<char>(code[NET_PAIR_CODE_DIGITS - 1] + 1);
+            }
+            net_access_answer_pairing(pump->access, event.peer, code, pump->grant);
+            continue;
+        }
         if (event.type != NetAccessEventType::message)
         {
             continue;
@@ -388,37 +414,33 @@ int main(int argc, char** argv)
     check(hosts_parse_address(typed, &address) && address.port == TEST_PORT, "typed address with a port");
     check(!hosts_parse_address("127.0.0.1:99999", &address), "a port out of range");
 
-    // Pairing closed: the host says so.
-    check(hosts_parse_address(typed, &address), "address");
-    check(hosts_pair(hosts, address, "123456"), "pair starts");
+    // The phone shows its code; the host's user types it (the pump).
+    char code[NET_PAIR_CODE_DIGITS + 1];
+    check(!hosts_pair(hosts, address, "123456"), "a code that isn't 9 digits doesn't start");
+
+    // The host takes no new devices: it says so.
+    access->accept_pairing = false;
+    net_pair_code_generate(code);
+    check(hosts_pair(hosts, address, code), "pair starts");
     check(pump_until_pair_done(&pump) && hosts->pair == PairStatus::failed &&
               hosts->refusal == NetClientRefusal::pairing_closed,
-          "pairing closed on the host");
-
-    // A wrong code.
-    check(net_access_open_pairing(access), "host opens pairing");
-    char wrong[NET_PAIR_CODE_DIGITS + 1];
-    std::snprintf(wrong, sizeof(wrong), "%s", access->code);
-    wrong[0] = wrong[0] == '9' ? '0' : static_cast<char>(wrong[0] + 1);
-    hosts->pair = PairStatus::idle;
-    check(hosts_pair(hosts, address, wrong), "pair with a wrong code starts");
-    check(pump_until_pair_done(&pump) && hosts->pair == PairStatus::failed &&
-              hosts->refusal == NetClientRefusal::wrong_code,
-          "wrong code refused");
-
-    // The right code: a failed attempt gives a new one, once the host has
-    // seen the attempt end (the connection closing too).
-    for (int32_t i = 0; i < 100; i++)
+          "no new devices on the host");
+    access->accept_pairing = true;
+    for (int32_t i = 0; i < 50; i++)   // that connection gone
     {
         pump_once(&pump);
     }
-    if (!access->pairing_open)
-    {
-        check(net_access_open_pairing(access), "host opens pairing again");
-    }
+
+    // Typed wrong once there: the phone shows a new code and asks again; the
+    // right one pairs.
+    pump.wrong_once = true;
+    pump.requests = 0;
+    net_pair_code_generate(code);
     hosts->pair = PairStatus::idle;
-    check(hosts_pair(hosts, address, access->code), "pair starts");
+    check(hosts_pair(hosts, address, code), "pair starts");
     check(pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired, "paired");
+    check(pump.requests == 2 && pump.first_code == code && pump.last_code != pump.first_code,
+          "a wrong code there: a new code here, asked again");
     check(hosts->known.size() == 1 && hosts->paired_index == 0, "one paired host");
     if (!hosts->known.empty())
     {
@@ -666,11 +688,8 @@ int main(int argc, char** argv)
     {
         pump_once(&pump);
     }
-    if (!access->pairing_open)
-    {
-        check(net_access_open_pairing(access), "host opens pairing for the next one");
-    }
-    check(hosts_pair(hosts, address, access->code) && pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired,
+    net_pair_code_generate(code);
+    check(hosts_pair(hosts, address, code) && pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired,
           "paired again");
     check(hosts_connect(hosts, 0) && pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected");
     for (int32_t i = 0; i < 20; i++)
@@ -692,7 +711,7 @@ int main(int argc, char** argv)
     delete hosts;
 
     // Across the internet: a beacon here, the host registered with it; a
-    // new phone with only the pair link and the code.
+    // new phone waits with its code, the host's user types it in INVITE.
     BeaconServer* beacon_server = new BeaconServer{};
     BeaconNet* beacon_net = new BeaconNet{};
     BeaconServerConfig beacon_config;
@@ -716,37 +735,23 @@ int main(int argc, char** argv)
     pump.beacon_net = beacon_net;
 
     std::string link = net_pair_link(host_identity.public_key, beacon_name);
-    check(hosts_is_pair_link(link.c_str()) && !hosts_is_pair_link("192.168.1.20"), "a pair link is told from an address");
+    std::string link_beacon;
+    check(hosts_link_beacon(link.c_str(), &link_beacon) && link_beacon == beacon_name &&
+              !hosts_link_beacon("192.168.1.20", &link_beacon),
+          "a link's beacon is read (kept for links to come)");
     std::string internet_dir = root + "/phone_internet";
     check(host_fs_make_directories(internet_dir.c_str()), "the second phone's folder");
     hosts = new Hosts{};
     pump.hosts = hosts;
     check(hosts_create(hosts, internet_dir.c_str(), "INTERNET PHONE"), "hosts_create (second phone)");
-    if (access->pairing_open)
-    {
-        net_access_close_pairing(access);
-    }
     for (int32_t i = 0; i < 100; i++)
     {
         pump_once(&pump);
     }
-    check(!hosts_pair_link(hosts, "https://get-piccolo.app/pair/#k=nope", "123456"), "a bad link doesn't start");
-    check(hosts_pair_link(hosts, link.c_str(), "123456"), "pairing with the link starts");
-    end = now_seconds() + 10.0;
-    while (now_seconds() < end && hosts->pair == PairStatus::busy)
-    {
-        pump_once(&pump);
-    }
-    check(hosts->pair == PairStatus::failed && hosts->refusal == NetClientRefusal::host_offline,
-          "the host isn't pairing: no room");
-    check(std::strcmp(hosts_pair_failure_text(hosts), "OPEN PAIR A DEVICE ON IT FIRST") == 0, "PAIR says so");
-    check(net_access_open_pairing(access), "host opens pairing (internet)");
-    for (int32_t i = 0; i < 200; i++)   // its REGISTER with the pairing room
-    {
-        pump_once(&pump);
-    }
-    hosts->pair = PairStatus::idle;
-    check(hosts_pair_link(hosts, link.c_str(), access->code), "pairing with the link and the code");
+    check(!hosts_pair_internet(hosts, "123", beacon_name), "a code that isn't 9 digits doesn't start");
+    net_pair_code_generate(code);
+    check(hosts_pair_internet(hosts, code, beacon_name), "the phone waits with its code");
+    check(net_access_invite(access, code), "the host's user types it in INVITE");
     end = now_seconds() + 10.0;
     while (now_seconds() < end && hosts->pair == PairStatus::busy)
     {

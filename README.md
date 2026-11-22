@@ -12,9 +12,10 @@ OpenGL ES 2) and the desktop (Linux, Windows) for development.
 
 ### What's there
 
-- **Pairing**: finds piccolos on the LAN, pairs with piccolo's 6-digit code,
-  everything encrypted. FORGET on both sides. Ping, packet loss and a speed
-  test with each host.
+- **Pairing**: the phone shows a code and the piccolo's user types it (on the
+  LAN the piccolo asks by itself; across the internet in TOOLS > INVITE, the
+  code sent with SEND CODE), everything encrypted. FORGET on both sides. Ping,
+  packet loss and a speed test with each host.
 - **GAMEPAD**: the phone as a controller (a RetroPad): multi-touch buttons and
   sticks, vibration, the port's LED; a real gamepad connected to the phone
   works too. EDIT LAYOUT (move, resize, pinch) on every layout.
@@ -36,7 +37,6 @@ OpenGL ES 2) and the desktop (Linux, Windows) for development.
 ### Not there yet
 
 - Buttons for piccolo's actions (save / load state, pause, reset...).
-- Across the internet (the beacon) and WebRTC; pairing by QR / link.
 - REMOTE PLAY shaders on OpenGL ES; opacity and quality while streaming.
 - Translations (the language setting is stored), HOTKEY mapping.
 - iOS, the browser.

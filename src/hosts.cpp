@@ -717,7 +717,7 @@ static void resolve_done(Hosts* hosts)
     }
     NetClient* client = &hosts->net.client;
     bool started = resolve->pairing ?
-                       net_client_pair_beacon(client, resolve->servers, resolve->count, resolve->key, resolve->code) :
+                       net_client_pair_beacon(client, resolve->servers, resolve->count, resolve->code) :
                        net_client_connect_beacon(client, resolve->servers, resolve->count,
                                                  static_cast<uint32_t>(resolve->index));
     SDL_Log("Network: %s through %s (%u address(es))%s", resolve->pairing ? "pairing" : "connecting", resolve->name,
@@ -913,6 +913,11 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->measure_only = false;
             }
             break;
+        case NetClientEventType::code_changed:
+            // The host's user typed our code wrong: PAIR shows the new one
+            // (hosts_pair_code) and the host's dialog asks again.
+            SDL_Log("Network: the code was typed wrong there: a new one");
+            break;
         case NetClientEventType::closed:
             hosts->speed.running = false;
             hosts->game_known = false;
@@ -989,62 +994,66 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index)
     return nullptr;
 }
 
-static bool pair_link_locked(Hosts* hosts, const char* link, const char* code)
+// A pairing started: PAIR follows it in hosts->pair. The phone asks as a
+// piccoletto (the host shows it) for GAMEPAD; the host's user decides
+// (Andrés, 2026-11-22: net_client_set_pairing before each start).
+static void start_pairing(Hosts* hosts)
 {
-    uint8_t key[NET_KEY_SIZE];
-    std::string beacon;
-    if (!hosts->ok || client_busy(hosts) || code == nullptr || !net_pair_code_valid(code) ||
-        !net_pair_link_parse(link, key, &beacon))
+    hosts->pair = PairStatus::busy;
+    hosts->paired_index = -1;
+    hosts->refusal = NetClientRefusal::none;
+    hosts->refusal_still_known = false;
+}
+
+static bool pair_internet_locked(Hosts* hosts, const char* code, const char* beacon)
+{
+    if (!hosts->ok || client_busy(hosts) || code == nullptr || !net_pair_code_valid(code))
     {
         return false;
     }
-    use_beacon(hosts, beacon);
+    std::string name = beacon != nullptr ? beacon : "";
+    use_beacon(hosts, name);
+    net_client_set_pairing(&hosts->net.client, NetAccessLevel::gamepad, NetPairKind::piccoletto);
     if (hosts->lan)
     {
         // Its addresses first (hosts_update pairs once they're found).
-        if (!resolve_start(hosts, beacon))
+        if (!resolve_start(hosts, name))
         {
             return false;
         }
         hosts->resolve.pairing = true;
-        std::memcpy(hosts->resolve.key, key, NET_KEY_SIZE);
         std::snprintf(hosts->resolve.code, sizeof(hosts->resolve.code), "%s", code);
     }
-    else if (!net_client_pair_beacon(&hosts->net.client, nullptr, 0, key, code))
+    else if (!net_client_pair_beacon(&hosts->net.client, nullptr, 0, code))
     {
         return false;
     }
-    hosts->pair = PairStatus::busy;
-    hosts->paired_index = -1;
-    hosts->refusal = NetClientRefusal::none;
-    hosts->refusal_still_known = false;
+    start_pairing(hosts);
     hosts->connecting_to = NetAddress{};
-    hosts->pair_beacon = beacon;
+    hosts->pair_beacon = name;
     return true;
 }
 
-bool hosts_is_pair_link(const char* text)
+bool hosts_link_beacon(const char* text, std::string* beacon)
 {
     uint8_t key[NET_KEY_SIZE];
-    std::string beacon;
-    return std::strchr(text, '#') != nullptr && net_pair_link_parse(text, key, &beacon);
+    return text != nullptr && std::strchr(text, '#') != nullptr && net_pair_link_parse(text, key, beacon);
 }
 
 static bool pair_locked(Hosts* hosts, NetAddress address, const char* code)
 {
-    if (!hosts->ok || client_busy(hosts))
+    if (!hosts->ok || client_busy(hosts) || code == nullptr || !net_pair_code_valid(code))
     {
         return false;
     }
+    net_client_set_pairing(&hosts->net.client, NetAccessLevel::gamepad, NetPairKind::piccoletto);
     if (!net_client_connect(&hosts->net.client, address, code))
     {
         return false;
     }
-    hosts->pair = PairStatus::busy;
-    hosts->paired_index = -1;
-    hosts->refusal = NetClientRefusal::none;
-    hosts->refusal_still_known = false;
+    start_pairing(hosts);
     hosts->connecting_to = address;
+    hosts->pair_beacon.clear();
     return true;
 }
 
@@ -1207,12 +1216,34 @@ bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
     return started;
 }
 
-bool hosts_pair_link(Hosts* hosts, const char* link, const char* code)
+bool hosts_pair_internet(Hosts* hosts, const char* code, const char* beacon)
 {
     net_client_service_lock(&hosts->net);
-    bool started = pair_link_locked(hosts, link, code);
+    bool started = pair_internet_locked(hosts, code, beacon);
     net_client_service_unlock(&hosts->net);
     return started;
+}
+
+bool hosts_pair_code(Hosts* hosts, char* code)
+{
+    net_client_service_lock(&hosts->net);
+    bool has = hosts->pair == PairStatus::busy && hosts->net.client.has_code;
+    if (has)
+    {
+        std::memcpy(code, hosts->net.client.code, NET_PAIR_CODE_DIGITS + 1);
+    }
+    net_client_service_unlock(&hosts->net);
+    return has;
+}
+
+bool hosts_pair_waiting(Hosts* hosts)
+{
+    net_client_service_lock(&hosts->net);
+    NetClientState state = hosts->net.client.state;
+    bool waiting = hosts->pair == PairStatus::busy &&
+                   (state == NetClientState::pairing || state == NetClientState::confirming);
+    net_client_service_unlock(&hosts->net);
+    return waiting;
 }
 
 bool hosts_connect(Hosts* hosts, int32_t index)
@@ -1476,12 +1507,6 @@ const char* hosts_pair_failure_text(const Hosts* hosts)
     {
         return "REMOVE THIS PHONE ON IT FIRST";
     }
-    if (hosts->refusal == NetClientRefusal::host_offline)
-    {
-        // Pairing with a link: the beacon's pairing room exists only while
-        // the host shows its code.
-        return "OPEN PAIR A DEVICE ON IT FIRST";
-    }
     return hosts_refusal_text(hosts->refusal);
 }
 
@@ -1491,8 +1516,9 @@ const char* hosts_refusal_text(NetClientRefusal refusal)
     {
     case NetClientRefusal::none:           return "";
     case NetClientRefusal::not_paired:     return "IT FORGOT THIS PHONE: PAIR AGAIN";
-    case NetClientRefusal::pairing_closed: return "OPEN PAIR A DEVICE ON IT FIRST";
-    case NetClientRefusal::wrong_code:     return "WRONG CODE";
+    case NetClientRefusal::pairing_closed: return "IT TAKES NO NEW DEVICES";
+    case NetClientRefusal::wrong_code:     return "THE CODE WAS TYPED WRONG TOO OFTEN";
+    case NetClientRefusal::refused:        return "IT SAID NO";
     case NetClientRefusal::unknown_host:   return "NOT THE DEVICE YOU PAIRED WITH";
     case NetClientRefusal::connection:     return "CAN'T REACH IT";
     // Across the internet (through the beacon).

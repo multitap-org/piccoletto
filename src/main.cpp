@@ -2,6 +2,7 @@
 // the theme and every screen with placeholder data; no networking yet.
 
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,9 @@
 #include <SDL3/SDL_main.h>
 #if defined(SDL_PLATFORM_EMSCRIPTEN)
 #include <emscripten/emscripten.h>
+#endif
+#if defined(SDL_PLATFORM_ANDROID)
+#include <jni.h>
 #endif
 
 #include "imgui.h"
@@ -94,7 +98,11 @@ struct App
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
     InputHold      back_hold = {};              // the pads: holding BACK goes to HOME
     Hosts          hosts;             // the paired hosts, discovery, pairing, the connection
-    PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (PAIR clears the code when it fails)
+    PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (a failure makes a new code)
+    PairStep       pair_step  = PairStep::pick;     // PAIR's step (waiting follows hosts.pair)
+    bool           pair_internet = false;           // PAIR is waiting across the internet
+    int32_t        pair_host  = -1;                 // PAIRED: the new host (index in hosts.known)
+    std::string    pair_beacon;                     // INTERNET goes through it ("" = the default; a link's)
     std::string    settings_dir;      // settings/ ("" = nothing is saved)
     std::string    settings_path;     // settings/piccoletto.cfg ("" = nothing is saved)
     std::string    layouts_path;      // settings/layouts.cfg
@@ -385,6 +393,10 @@ static void go_to(App* app, Screen screen)
     if (screen == Screen::pair)
     {
         pair_screen_reset(&app->pair);
+        app->pair_step = PairStep::pick;
+        app->pair_internet = false;
+        app->pair_host = -1;
+        app->hosts.pair = PairStatus::idle;   // an old failure isn't this visit's
     }
     if (!mode)
     {
@@ -508,16 +520,22 @@ static void go_back(App* app)
     }
 }
 
-// PAIR with `link` (a pair link) in the address field: the code is all
-// that's left to type.
-static void open_pair_link(App* app, const char* link)
+// A link naming a piccolo (net_pair_link.h: the Android intent, a dropped
+// text, the browser's '#'). Not used for pairing since 2026-11-22 (the phone
+// shows its code); kept for the links to come (Andrés: a game to join). For
+// now it opens PAIR, and its beacon is the one INTERNET goes through.
+static void open_link(App* app, const char* link)
 {
+    std::string beacon;
+    if (!hosts_link_beacon(link, &beacon))
+    {
+        return;
+    }
     if (app->screen != Screen::pair)
     {
         go_to(app, Screen::pair);
     }
-    pair_screen_set_address(&app->pair, link);
-    pair_screen_reset(&app->pair);
+    app->pair_beacon = beacon;
 }
 
 static void handle_events(App* app)
@@ -534,13 +552,11 @@ static void handle_events(App* app)
         {
             app->running = false;
         }
-        // A pair link handed to the app while it runs (Android: the site's
-        // /pair page opening piccoletto://pair, PiccolettoActivity; the
-        // desktop: text dropped on the window): PAIR with it filled in.
-        if ((event.type == SDL_EVENT_DROP_TEXT || event.type == SDL_EVENT_DROP_FILE) && event.drop.data != nullptr &&
-            hosts_is_pair_link(event.drop.data))
+        // A link handed to the app while it runs (Android: piccoletto://pair,
+        // PiccolettoActivity; the desktop: text dropped on the window).
+        if ((event.type == SDL_EVENT_DROP_TEXT || event.type == SDL_EVENT_DROP_FILE) && event.drop.data != nullptr)
         {
-            open_pair_link(app, event.drop.data);
+            open_link(app, event.drop.data);
         }
         // Escape in a text field is the field's (it stops editing).
         if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
@@ -648,8 +664,42 @@ static void send_pad(App* app)
     hosts_send_pad(&app->hosts, &pad);
 }
 
-// PAIR: the unpaired hosts found, the code, how pairing goes. When it's
-// done, HOME with the new host on the card.
+// SEND CODE: the code to whoever sits at the piccolo. Android: its share
+// sheet (PiccolettoActivity.shareText); elsewhere the clipboard.
+static void send_code(const char* code)
+{
+    char text[160];
+    std::snprintf(text, sizeof(text), "PICCOLETTO CODE: %.3s %.3s %.3s. TYPE IT ON THE PICCOLO IN TOOLS > INVITE.", code,
+                  code + 3, code + 6);
+#if defined(SDL_PLATFORM_ANDROID)
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (env != nullptr && activity != nullptr)
+    {
+        jclass type = env->GetObjectClass(activity);
+        jmethodID method = env->GetMethodID(type, "shareText", "(Ljava/lang/String;)V");
+        if (method != nullptr)
+        {
+            jstring value = env->NewStringUTF(text);
+            env->CallVoidMethod(activity, method, value);
+            env->DeleteLocalRef(value);
+        }
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+            SDL_Log("SEND CODE: the share sheet failed");
+        }
+        env->DeleteLocalRef(type);
+        env->DeleteLocalRef(activity);
+    }
+#else
+    SDL_SetClipboardText(text);
+#endif
+}
+
+// PAIR (Andrés, 2026-11-22): the phone shows its code, the piccolo's user
+// types it. Waiting follows hosts.pair; PAIRED waits for CONTINUE, which goes
+// to HOME with the new host on the card.
 static NavAction draw_pair(App* app)
 {
     Hosts* hosts = &app->hosts;
@@ -659,68 +709,88 @@ static NavAction draw_pair(App* app)
     {
         found[i] = hosts_unpaired(hosts, i)->name;
     }
-    PairProgress progress;
-    if (!hosts->ok)
+    if (hosts->pair == PairStatus::paired)
     {
-        progress.text = "NO NETWORK";
-        progress.error = true;
+        app->pair_step = PairStep::paired;
+        app->pair_host = hosts->paired_index;
+        hosts->pair = PairStatus::idle;
     }
-    else if (hosts->pair == PairStatus::busy)
+    else if (app->pair_step != PairStep::paired)
     {
-        progress.busy = true;
-        progress.text = hosts_pair_connecting(hosts) ? "CONNECTING…" : "CHECKING THE CODE…";
+        app->pair_step = hosts->pair == PairStatus::busy ? PairStep::waiting : PairStep::pick;
     }
-    else if (hosts->pair == PairStatus::failed)
-    {
-        progress.text = hosts_pair_failure_text(hosts);
-        progress.error = true;
-    }
-    bool done = false;
-    NavAction action = pair_screen_draw(&app->pair, &app->ui, found, found_count, &progress, &done);
-    // A failed attempt: the host has a new code by now, so the typed one goes;
-    // the next key clears the message.
+    // A failure: a new code for the next try (the old one is spent).
     if (hosts->pair == PairStatus::failed && app->last_pair != PairStatus::failed)
     {
         pair_screen_reset(&app->pair);
     }
-    else if (hosts->pair == PairStatus::failed && app->pair.typed)
-    {
-        hosts->pair = PairStatus::idle;
-    }
     app->last_pair = hosts->pair;
-    if (done && app->pair.typing_address && hosts_is_pair_link(app->pair.address))
+
+    PairView view;
+    view.step = app->pair_step;
+    view.found = found;
+    view.found_count = found_count;
+    view.internet = app->pair_internet;
+    if (!hosts->ok)
     {
-        // A pair link: across the internet, met through the host's beacon.
-        if (!hosts_pair_link(hosts, app->pair.address, app->pair.code))
+        view.error = "NO NETWORK";
+    }
+    else if (hosts->pair == PairStatus::failed)
+    {
+        view.error = hosts_pair_failure_text(hosts);
+    }
+    if (view.step == PairStep::waiting)
+    {
+        char code[NET_PAIR_CODE_DIGITS + 1];
+        if (hosts_pair_code(hosts, code))
+        {
+            std::memcpy(app->pair.code, code, sizeof(code));   // a new one after a wrong try there
+        }
+        view.host_asked = hosts_pair_waiting(hosts);
+    }
+    if (view.step == PairStep::paired && app->pair_host >= 0 &&
+        app->pair_host < static_cast<int32_t>(hosts->known.size()))
+    {
+        const KnownHost* host = &hosts->known[static_cast<size_t>(app->pair_host)];
+        view.host_name = host->name.c_str();
+        view.remote_play = net_access_allows(host->access, NetAccessLevel::stream);
+        view.devices = net_access_allows(host->access, NetAccessLevel::full);
+    }
+
+    PairTap tap = PairTap::none;
+    NavAction action = pair_screen_draw(&app->pair, &app->ui, &view, &tap);
+    switch (tap)
+    {
+    case PairTap::none:
+        break;
+    case PairTap::pair:
+        app->pair_internet = false;
+        if (app->pair.selected >= found_count ||
+            !hosts_pair(hosts, hosts_unpaired(hosts, app->pair.selected)->address, app->pair.code))
         {
             hosts->pair = PairStatus::failed;
             hosts->refusal = NetClientRefusal::connection;
         }
-    }
-    else if (done)
-    {
-        NetAddress address;
-        bool have = false;
-        if (app->pair.typing_address)
-        {
-            have = hosts_parse_address(app->pair.address, &address);
-        }
-        else if (app->pair.selected < found_count)
-        {
-            address = hosts_unpaired(hosts, app->pair.selected)->address;
-            have = true;
-        }
-        if (!have || !hosts_pair(hosts, address, app->pair.code))
+        break;
+    case PairTap::internet:
+        app->pair_internet = true;
+        if (!hosts_pair_internet(hosts, app->pair.code, app->pair_beacon.c_str()))
         {
             hosts->pair = PairStatus::failed;
-            hosts->refusal = NetClientRefusal::connection;
+            hosts->refusal = NetClientRefusal::beacon_unreachable;
         }
-    }
-    if (hosts->pair == PairStatus::paired)
-    {
-        app->home.selected = hosts->paired_index;
-        hosts->pair = PairStatus::idle;
+        break;
+    case PairTap::cancel:
+        hosts_cancel(hosts);
+        pair_screen_reset(&app->pair);
+        break;
+    case PairTap::send_code:
+        send_code(app->pair.code);
+        break;
+    case PairTap::proceed:
+        app->home.selected = app->pair_host;
         action = NavAction::home;
+        break;
     }
     return action;
 }
@@ -1201,6 +1271,7 @@ int main(int argc, char** argv)
     pad_layouts_init(&app->layouts);
 
     Screen first = Screen::home;
+    std::string link_beacon;   // opened with a link: its beacon (open_link)
     bool landscape = false;
     bool edit = false;
     bool open_devices = false;
@@ -1227,11 +1298,10 @@ int main(int argc, char** argv)
             open_devices = true;
             i++;
         }
-        else if (SDL_strcmp(argv[i], "--pair-link") == 0 && i + 1 < argc && hosts_is_pair_link(argv[i + 1]))
+        else if (SDL_strcmp(argv[i], "--pair-link") == 0 && i + 1 < argc && hosts_link_beacon(argv[i + 1], &link_beacon))
         {
-            // Opened with a pair link (Android: piccoletto://pair from the
-            // site's /pair page): PAIR with it filled in.
-            pair_screen_set_address(&app->pair, argv[i + 1]);
+            // Opened with a link (Android: piccoletto://pair): PAIR, its
+            // beacon the one INTERNET goes through (open_link).
             first = Screen::pair;
             i++;
         }
@@ -1323,19 +1393,17 @@ int main(int argc, char** argv)
     }
 
 #if defined(SDL_PLATFORM_EMSCRIPTEN)
-    // The browser: a page opened with a pair link after '#' (a QR code, the
-    // link a desktop piccolo copies) opens PAIR with it filled in.
+    // The browser: a page opened with a link after '#' (open_link) opens PAIR.
     {
         const char* hash = emscripten_run_script_string("location.hash");
-        if (hash != nullptr && hosts_is_pair_link(hash))
+        if (hash != nullptr && hosts_link_beacon(hash, &link_beacon))
         {
-            std::string link = std::string("https://get-piccolo.app/pair") + hash;
-            pair_screen_set_address(&app->pair, link.c_str());
             first = Screen::pair;
         }
     }
 #endif
     go_to(app, first);
+    app->pair_beacon = link_beacon;
     app->editor.active = edit && (first == Screen::gamepad || first == Screen::remote_play);
     app->devices_open = open_devices;
     app->running = true;

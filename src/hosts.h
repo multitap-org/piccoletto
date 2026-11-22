@@ -2,7 +2,14 @@
 
 // The hosts (piccolos) this phone knows and the network to them, on
 // frontends-common's frontend_net: this device's identity, the hosts it
-// paired with, LAN discovery, pairing with the 6-digit code and connecting.
+// paired with, LAN discovery, pairing and connecting.
+//
+// Pairing (Andrés, 2026-11-22): the phone shows a one-use 9-digit code
+// (net_pair_code_generate) and asks; the piccolo's user types it and picks
+// what the phone may do. On the LAN the piccolo is asked directly; across the
+// internet the phone waits in the code's pairing room on the beacon while the
+// piccolo's user types it in TOOLS > INVITE. A code typed wrong there gives a
+// new one here (hosts_pair_code).
 // The connection runs on its own thread (net_client_service.h: polled every
 // millisecond; remote play's stream decoded there, its audio played there);
 // the app's loop drains what it reported (hosts_update), never blocks. Every
@@ -25,8 +32,8 @@
 // dropped from the list.
 //
 // Across the internet (Andrés: the same flow whatever the transport): a host
-// that isn't on the LAN is met through its beacon: the pair link's, or the
-// default one for a host paired on the LAN (Andrés, 2026-11-21: a phone that
+// that isn't on the LAN is met through its beacon: the one it was paired
+// through, or the default one for a host paired on the LAN (Andrés, 2026-11-21: a phone that
 // leaves home doesn't pair again). Such a host is tried at its LAN address
 // first unless it was last met across the internet; no answer there, then
 // the beacon:
@@ -99,8 +106,7 @@ struct HostsResolve
     uint32_t      count = 0;
     bool          cancelled = false;        // nobody wants it any more: dropped when it ends
     bool          pairing = false;          // else connecting to `index`
-    uint8_t       key[NET_KEY_SIZE] = {};   // pairing: the link's host key
-    char          code[8] = {};             // pairing: the 6 digits
+    char          code[NET_PAIR_CODE_DIGITS + 1] = {};   // pairing: ours
     int32_t       index = -1;               // connecting: the known host
 };
 
@@ -132,7 +138,7 @@ struct Hosts
 {
     bool                   ok = false;          // networking runs (false: no identity, no socket)
     bool                   lan = false;         // LAN discovery and ENet work here (not in a browser)
-    std::string            pair_beacon;         // the beacon of the pair link being paired with
+    std::string            pair_beacon;         // the beacon an internet pairing goes through ("" = the default)
     NetClientService       net;                 // the connection, on its thread (net.client under its lock)
     NetHost                discovery;           // our own client host for discovery replies
     std::vector<KnownHost> known;               // the same order as client.trust.devices
@@ -200,14 +206,23 @@ void hosts_set_name(Hosts* hosts, const char* phone_name);
 int32_t hosts_unpaired_count(const Hosts* hosts);
 const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index);
 
-// Pair with the host at `address` with the code it shows. Progress in
-// hosts->pair. False if it can't start (another connection is running).
+// Asks the host at `address` to pair, with `code` (ours, 9 digits: its user
+// types it). Progress in hosts->pair. False if it can't start (another
+// connection is running).
 bool hosts_pair(Hosts* hosts, NetAddress address, const char* code);
-// Pairs across the internet with the host a pair link names
-// (https://get-piccolo.app/pair#k=...) and the code it shows.
-bool hosts_pair_link(Hosts* hosts, const char* link, const char* code);
-// True when `text` is a pair link (PAIR's field takes an address or a link).
-bool hosts_is_pair_link(const char* text);
+// Across the internet: waits with `code` in its pairing room on `beacon`
+// ("" = the default) until a piccolo's user types it in TOOLS > INVITE.
+bool hosts_pair_internet(Hosts* hosts, const char* code, const char* beacon);
+// The code to show while pairing (a new one after the host typed it wrong).
+// False when no pairing runs.
+bool hosts_pair_code(Hosts* hosts, char* code);
+// The host has our request: its user hasn't typed the code yet (WAITING).
+bool hosts_pair_waiting(Hosts* hosts);
+// A link that names a host and its beacon (net_pair_link.h; the Android
+// intent, the browser's '#'): not used for pairing since 2026-11-22, kept for
+// the links to come (a game to join). Its beacon ("" = the default), the one
+// PAIR's INTERNET goes through. False if `text` isn't one.
+bool hosts_link_beacon(const char* text, std::string* beacon);
 // Connect to a paired host (entering GAMEPAD...) / leave it. The speed test
 // runs once it's ready (once per run for each host).
 bool hosts_connect(Hosts* hosts, int32_t index);
@@ -278,7 +293,7 @@ void hosts_go_headless(Hosts* hosts, bool on);
 // Whether REMOTE PLAY's stream is running now (asked for and connected).
 bool hosts_streaming(const Hosts* hosts);
 
-// PAIR's progress line: still connecting (true) or checking the code.
+// PAIR's progress line: still connecting (true), or the host has our request.
 bool hosts_pair_connecting(Hosts* hosts);
 
 // The pads' status: offline, connecting, or ready with the last ping and loss.

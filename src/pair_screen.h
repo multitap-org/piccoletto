@@ -1,48 +1,62 @@
 #pragma once
 
-// PAIR A DEVICE: pick a host found on the network (or type its address, or
-// paste its pair link: pairing across the internet), then type the code it
-// shows on its screen with the big keypad. The host
-// decides what this phone may do (on its side). While the app pairs, the
-// screen shows how it goes (or why it failed) under the code.
-// Portrait: all in one column; landscape: the keypad on the right.
+// PAIR (Andrés, 2026-11-22; docs/mockups/pairing/piccoletto-pairing-*.png):
+// the phone shows its code, the piccolo's user types it.
+//   1. pick: the piccolos on this network as cards, YOUR CODE big, PAIR
+//      (primary, with a card picked) and INTERNET (the piccolo is elsewhere).
+//   2. waiting: the same code, the four lamps lit one at a time, what to do on
+//      the piccolo; CANCEL. Across the internet SEND CODE (Android's share
+//      sheet) to get the code to whoever sits at the piccolo.
+//   3. paired: the piccolo and what it gave this phone; CONTINUE to HOME.
+// A failure goes back to 1 with a new code and says why.
+// Portrait: one column; landscape: the cards left, the code and buttons right.
 
 #include <cstdint>
 
+#include "net_pairing.h"
 #include "screens.h"
 #include "touch_ui.h"
 
-constexpr int32_t PAIR_CODE_LENGTH = 6;
+enum class PairStep
+{
+    pick,
+    waiting,
+    paired,
+};
 
-constexpr int32_t PAIR_ADDRESS_SIZE = 256;   // an address, or a pair link (~90 characters, more with a beacon)
+enum class PairTap
+{
+    none,
+    pair,        // PAIR: with found[selected]
+    internet,    // INTERNET: wait for the piccolo's INVITE
+    cancel,      // CANCEL while waiting
+    send_code,   // SEND CODE (across the internet)
+    proceed,     // CONTINUE once paired
+};
 
 struct PairScreen
 {
     int32_t selected = 0;                         // in the found list
-    char    code[PAIR_CODE_LENGTH + 1] = {};      // digits typed so far
-    int32_t length = 0;
-    bool    typing_address = false;               // the address field instead of a found host
-    char    address[PAIR_ADDRESS_SIZE] = {};      // "192.168.1.20", "192.168.1.20:55420" or a pair link
-    bool    typed = false;                        // a key was tapped this frame (the app clears an old error)
+    char    code[NET_PAIR_CODE_DIGITS + 1] = {};  // ours, shown; made when the screen opens
 };
 
-// How the pairing goes, from the app.
-struct PairProgress
+// What the app knows, to draw.
+struct PairView
 {
-    bool        busy  = false;     // connecting / checking: the keypad waits
-    const char* text  = "";        // "CONNECTING…", "WRONG CODE"...
-    bool        error = false;     // `text` is a failure (in the highlight color)
+    PairStep    step = PairStep::pick;
+    const char* const* found = nullptr;    // the unpaired piccolos on this network
+    int32_t     found_count = 0;
+    bool        internet = false;          // waiting: across the internet (else the picked card)
+    bool        host_asked = false;        // waiting: the host has our request
+    const char* error = "";                // pick: why the last try failed ("" = none)
+    // paired
+    const char* host_name = "";
+    bool        remote_play = false;       // it gave STREAM or more
+    bool        devices = false;           // FULL
 };
 
-// Clears the code (call when the screen opens).
+// A new code (call when the screen opens, and after a failure).
 void pair_screen_reset(PairScreen* pair);
 
-// Opens the screen with the address field filled (a pair link the page was
-// opened with, in a browser).
-void pair_screen_set_address(PairScreen* pair, const char* text);
-
-// `found`: the names of the unpaired hosts on the network. *done is set when
-// OK was tapped with a host (pair->selected, or pair->address while
-// pair->typing_address) and the whole code: the app starts pairing.
-NavAction pair_screen_draw(PairScreen* pair, const TouchUi* ui, const char* const* found, int32_t found_count,
-                           const PairProgress* progress, bool* done);
+// `tap` gets what was tapped this frame (PairTap::none if nothing).
+NavAction pair_screen_draw(PairScreen* pair, const TouchUi* ui, const PairView* view, PairTap* tap);

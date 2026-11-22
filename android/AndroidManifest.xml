@@ -54,10 +54,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-            <!-- Pairing across the internet: the site's /pair page opens
-                 piccoletto://pair?k=..&b=.. (the pair link's fields), see
-                 PiccolettoActivity. Later, with the release signing key: an
-                 autoVerify https filter for get-piccolo.app/pair. -->
+            <!-- A link naming a piccolo: piccoletto://pair?k=..&b=.. (the
+                 pair link's fields), see PiccolettoActivity. Not used for
+                 pairing since 2026-11-22 (the phone shows its code); kept
+                 for the links to come (Andrés: a click to join a game). It
+                 opens PAIR, its beacon the one INTERNET goes through. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

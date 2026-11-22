@@ -42,7 +42,9 @@ public class PiccolettoActivity extends SDLActivity {
     // The desktop's testing flags (--screen gamepad, --aspect 2:3, ...) from
     // the launch intent, to look at a screen without tapping through:
     //   adb shell am start -S -n site.multitap.piccoletto/.PiccolettoActivity --es args "--screen gamepad"
-    // Opened from piccoletto://pair (the site's /pair page): --pair-link.
+    // Opened from piccoletto://pair: --pair-link (a link naming a piccolo and
+    // its beacon; not used for pairing since 2026-11-22, kept for the links to
+    // come: main.cpp's open_link).
     @Override
     protected String[] getArguments() {
         ArrayList<String> list = new ArrayList<String>();
@@ -59,7 +61,7 @@ public class PiccolettoActivity extends SDLActivity {
     }
 
     // Already running (singleInstance): the link reaches the app as dropped
-    // text (SDL_EVENT_DROP_FILE; main.cpp opens PAIR with it).
+    // text (SDL_EVENT_DROP_FILE; main.cpp's open_link).
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
@@ -68,6 +70,21 @@ public class PiccolettoActivity extends SDLActivity {
         if (link != null) {
             SDLActivity.onNativeDropFile(link);
         }
+    }
+
+    // SEND CODE (PAIR across the internet): Android's share sheet with the
+    // code, to get it to whoever sits at the piccolo. Called from main.cpp
+    // through JNI on SDL's thread; the chooser opens on the UI thread.
+    public void shareText(final String text) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Intent send = new Intent(Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(Intent.EXTRA_TEXT, text);
+                startActivity(Intent.createChooser(send, null));
+            }
+        });
     }
 
     // piccoletto://pair?k=..&b=.. as the pair link the app reads
