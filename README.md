@@ -52,9 +52,23 @@ cmake --build piccoletto/build
 piccoletto/android/build-apk.sh [--legacy]   # the APK
 ```
 
-Needs CMake 3.25+, Ninja, a C++20 compiler and the Vulkan loader + headers
-(see piccolo's README for the Linux packages SDL wants). CI builds the APK,
+Needs CMake 3.25+, Ninja, a C++20 compiler, the Vulkan loader + headers and
+OpenSSL (WebRTC), plus the packages SDL wants on Linux. CI builds the APK,
 the Flatpak and the Windows zip.
+
+### Linux (Debian / Ubuntu)
+
+```sh
+git clone https://github.com/multitap-org/piccoletto.git
+piccoletto/tools/build-linux.sh --deps
+```
+
+`tools/build-linux.sh` builds piccoletto and librashader (REMOTE PLAY's
+slang shaders) and installs them to `~/.local/share/piccoletto`. It fetches
+the submodules not checked out yet, and with `--deps` it first installs the
+packages (apt, with sudo). The other options are `--debug`, `--test` and
+`--no-librashader`; `--help` lists them. It's the same as piccolo's script,
+and adds no menu entry.
 
 ### Windows
 
@@ -62,15 +76,17 @@ From the **MSYS2 UCRT64** shell (CLANGARM64 on ARM64), checked out with LF
 endings:
 
 ```sh
-pacman -S --needed git mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,vulkan-devel,ntldd,rust}
-git clone -c core.autocrlf=false --recursive https://github.com/multitap-org/piccoletto.git
-piccoletto/tools/build-windows.sh
+pacman -Syu
+git clone -c core.autocrlf=false https://github.com/multitap-org/piccoletto.git
+piccoletto/tools/build-windows.sh --deps
 ```
 
 `tools/build-windows.sh` builds piccoletto and librashader (REMOTE PLAY's
 slang shaders) and deploys them to `%USERPROFILE%\piccoletto` with the MSYS2
-DLLs they need (`--debug`, `--test`, `--no-librashader`; `--help` lists
-them). It's the same as piccolo's script; piccolo's `docs/compilation.md` has
+DLLs they need. It fetches the submodules not checked out yet, and with
+`--deps` it first installs the packages (`pacman -S --needed`; run
+`pacman -Syu` first, until nothing is left). The other options are
+`--debug`, `--test` and `--no-librashader`; `--help` lists them. It's the same as piccolo's script; piccolo's `docs/compilation.md` has
 the steps one by one.
 
 MIT License (see LICENSE).
