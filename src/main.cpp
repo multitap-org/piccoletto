@@ -146,8 +146,9 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         *shown = HomeHost{};
         shown->name = host->name.c_str();
         shown->online = host->online;
-        // Across the internet: paired that way, or anything in a browser (no LAN there).
-        shown->internet = !host->online && (host->internet || !app->hosts.lan);
+        // Not on the LAN now: met across the internet through its beacon
+        // (every paired host has one: the default beacon for LAN pairings).
+        shown->internet = !host->online;
         shown->access.gamepad = true;
         shown->access.remote_play = net_access_allows(host->access, NetAccessLevel::stream);
         shown->down_kbps = host->down_kbps;

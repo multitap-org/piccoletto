@@ -771,6 +771,29 @@ int main(int argc, char** argv)
     }
     check(hosts->link == LinkStatus::ready && hosts->net.client.via_beacon, "connected across the internet");
     hosts_disconnect(hosts);
+
+    // A host last met on the LAN that doesn't answer there (the phone left
+    // home): tried at its LAN address, then through the beacon.
+    if (hosts->known.size() == 1)
+    {
+        check(net_address_from_text("127.0.0.1", 9, &hosts->known[0].address), "a LAN address nobody answers");
+        hosts->known[0].internet = false;
+        hosts->known[0].online = false;
+    }
+    for (int32_t i = 0; i < 50; i++)
+    {
+        pump_once(&pump);
+    }
+    check(hosts_connect(hosts, 0), "connect: the LAN first");
+    check(hosts->connecting_to.port == 9 || hosts->connect_pending, "tried at the LAN address");
+    end = now_seconds() + 30.0;
+    while (now_seconds() < end && hosts->link == LinkStatus::connecting)
+    {
+        pump_once(&pump);
+    }
+    check(hosts->lan_failed, "no answer on the LAN");
+    check(hosts->link == LinkStatus::ready && hosts->net.client.via_beacon, "then connected through the beacon");
+    hosts_disconnect(hosts);
     hosts_destroy(hosts);
     delete hosts;
     hosts = new Hosts{};
