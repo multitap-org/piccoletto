@@ -110,18 +110,22 @@ struct App
     SettingsFile   layouts_file;
     bool           running    = false;
     bool           testing    = false;   // opened with --screen: the modes stay without a host
+    uint64_t       guest_ready_at = 0;   // a guest's REMOTE PLAY: when what it may do was last shown
+    uint32_t       guest_shown_what = 0xffffffffu;
 };
 
 constexpr int32_t MAX_SHOWN_HOSTS = 32;   // HOME and SETTINGS list at most this many
 
+// The host the modes talk to: HOME's selection, or a guest link's host
+// (HOSTS_GUEST) while one is open.
 static const KnownHost* selected_known(const App* app)
 {
-    int32_t index = app->home.selected;
-    if (index < 0 || index >= static_cast<int32_t>(app->hosts.known.size()))
-    {
-        return nullptr;
-    }
-    return &app->hosts.known[static_cast<size_t>(index)];
+    return hosts_host(&app->hosts, app->home.selected);
+}
+
+static bool guest_mode(const App* app)
+{
+    return app->home.selected == HOSTS_GUEST && app->hosts.has_guest;
 }
 
 static const char* selected_host(const App* app)
@@ -337,6 +341,69 @@ static void draw_pause_banner(App* app)
     touch_ui_text(&app->ui, x, y, text, app->ui.palette.text, TouchText::normal);
 }
 
+static void go_to(App* app, Screen screen);
+
+// A guest's REMOTE PLAY: JOINING while it connects; then what it may do
+// (for a few seconds); a failure stays until OK (back to HOME).
+static void draw_guest_card(App* app)
+{
+    if (!guest_mode(app))
+    {
+        return;
+    }
+    const char* title = nullptr;
+    const char* line = nullptr;
+    bool failed = app->hosts.link == LinkStatus::failed;
+    if (failed)
+    {
+        title = app->hosts.refusal == NetClientRefusal::guest_full ? "SESSION FULL" : "COULDN'T JOIN";
+        line = hosts_refusal_text(app->hosts.refusal);
+    }
+    else if (app->hosts.link != LinkStatus::ready)
+    {
+        title = "JOINING";
+        line = "CONNECTING TO THE HOST...";
+        app->guest_ready_at = 0;
+    }
+    else
+    {
+        if (app->guest_ready_at == 0)
+        {
+            app->guest_ready_at = SDL_GetTicks();
+        }
+        bool play = app->hosts.guest_level == NetGuestLevel::play;
+        bool port = app->hosts.guest_port != NET_GUEST_NO_PORT;
+        // Shown 4 s after joining, and again whenever it changes.
+        uint32_t what = play ? (port ? 2u : 1u) : 0u;
+        if (what != app->guest_shown_what)
+        {
+            app->guest_shown_what = what;
+            app->guest_ready_at = SDL_GetTicks();
+        }
+        if (SDL_GetTicks() - app->guest_ready_at > 4000)
+        {
+            return;
+        }
+        title = !play ? "WATCHING" : (port ? "PLAYING" : "WATCHING");
+        line = !play ? "THE HOST GAVE THIS LINK WATCH ONLY" : (port ? "YOUR PAD PLAYS. ENJOY!" : "NO FREE PORT: PRESS START WHEN ONE FREES UP");
+    }
+    float width = touch_ui_width(&app->ui);
+    float height = touch_ui_height(&app->ui);
+    float card_width = width - 32.0f < 220.0f ? width - 32.0f : 220.0f;
+    float card_height = failed ? 74.0f : 46.0f;
+    float x = (width - card_width) / 2.0f;
+    float y = (height - card_height) / 2.0f;
+    touch_ui_rect(&app->ui, x, y, card_width, card_height, app->ui.palette.panel_face);
+    touch_ui_text(&app->ui, x + 8.0f, y + 8.0f, title, app->ui.palette.text_highlight, TouchText::big);
+    uint32_t dim = (app->ui.palette.text & 0x00FFFFFFu) | 0xB0000000u;
+    touch_ui_text(&app->ui, x + 8.0f, y + 28.0f, line, dim, TouchText::normal);
+    if (failed && touch_ui_button(&app->ui, "##guest_ok", x + card_width - 68.0f, y + card_height - 26.0f, 60.0f, 20.0f,
+                                  "OK", TouchButton::primary, TouchText::normal))
+    {
+        go_to(app, Screen::home);
+    }
+}
+
 static void close_menu(App* app)
 {
     if (app->menu_open && app->quick_menu.settings_changed)
@@ -370,6 +437,12 @@ static void go_to(App* app, Screen screen)
     {
         hosts_stream_stop(&app->hosts);   // the host stops sending; the next stream starts black
         stream_view_clear(&app->stream_view);
+        if (guest_mode(app))
+        {
+            // A guest link is for this visit only: leaving forgets it.
+            hosts_clear_guest(&app->hosts);
+            app->home.selected = 0;
+        }
     }
     if (mode)
     {
@@ -526,6 +599,23 @@ static void go_back(App* app)
 // now it opens PAIR, and its beacon is the one INTERNET goes through.
 static void open_link(App* app, const char* link)
 {
+    // A guest link (design-notes "Guest links"): straight into REMOTE PLAY,
+    // watching (and playing when the host gives a seat and a port is free).
+    if (hosts_set_guest(&app->hosts, link))
+    {
+        if (app->screen == Screen::remote_play && guest_mode(app))
+        {
+            return;   // the same link again
+        }
+        if (app->screen == Screen::remote_play)
+        {
+            go_to(app, Screen::home);
+            hosts_set_guest(&app->hosts, link);
+        }
+        app->home.selected = HOSTS_GUEST;
+        go_to(app, Screen::remote_play);
+        return;
+    }
     std::string beacon;
     if (!hosts_link_beacon(link, &beacon))
     {
@@ -880,6 +970,10 @@ static void draw_screen(App* app)
     // REMOTE PLAY: the touch controls hide while a real gamepad is connected (unless shown from the sheet).
     bool gamepad_connected = real_gamepad_connected(&app->gamepad);
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
+    if (guest_mode(app) && app->hosts.guest_level != NetGuestLevel::play)
+    {
+        show_touch = false;   // a guest that only watches has no pad there
+    }
     HomeHost shown[MAX_SHOWN_HOSTS];
     int32_t shown_count = home_hosts(app, shown);
     PadLink link = hosts_pad_link(&app->hosts);
@@ -936,6 +1030,10 @@ static void draw_screen(App* app)
     if ((app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->editor.active)
     {
         draw_pause_banner(app);
+    }
+    if (app->screen == Screen::remote_play)
+    {
+        draw_guest_card(app);
     }
     touch_ui_end_screen();
     // The ports' tabs over the pads (any access level: read only), down
@@ -1213,7 +1311,7 @@ static bool app_frame(void* data)
     // The modes need the host (Andrés): when the connection drops, or
     // can't be made, back to HOME.
     bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
-    if (in_mode && app->hosts.link == LinkStatus::failed && !app->testing)
+    if (in_mode && app->hosts.link == LinkStatus::failed && !app->testing && !guest_mode(app))
     {
         SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
         go_to(app, Screen::home);
@@ -1272,6 +1370,7 @@ int main(int argc, char** argv)
 
     Screen first = Screen::home;
     std::string link_beacon;   // opened with a link: its beacon (open_link)
+    std::string join_link;     // opened with a guest link (--join, or the browser's #join=)
     bool landscape = false;
     bool edit = false;
     bool open_devices = false;
@@ -1305,13 +1404,19 @@ int main(int argc, char** argv)
             first = Screen::pair;
             i++;
         }
+        else if (SDL_strcmp(argv[i], "--join") == 0 && i + 1 < argc)
+        {
+            // A guest link (Android: piccoletto://join, PiccolettoActivity).
+            join_link = argv[i + 1];
+            i++;
+        }
         else if (SDL_strcmp(argv[i], "--aspect") == 0 && i + 1 < argc && parse_aspect(argv[i + 1], &app->stream))
         {
             i++;
         }
         else
         {
-            SDL_Log("Usage: piccoletto [--screen home|pair|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK]");
+            SDL_Log("Usage: piccoletto [--screen home|pair|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK] [--join LINK]");
         }
     }
 
@@ -1396,7 +1501,14 @@ int main(int argc, char** argv)
     // The browser: a page opened with a link after '#' (open_link) opens PAIR.
     {
         const char* hash = emscripten_run_script_string("location.hash");
-        if (hash != nullptr && hosts_link_beacon(hash, &link_beacon))
+        if (hash != nullptr && net_guest_link_looks_like(hash))
+        {
+            // A guest link from the join page (#join=<room>.<token>): taken,
+            // then the '#' cleared so a reload or a bookmark doesn't keep the token.
+            join_link = hash;
+            emscripten_run_script("history.replaceState(null, '', location.pathname + location.search)");
+        }
+        else if (hash != nullptr && hosts_link_beacon(hash, &link_beacon))
         {
             first = Screen::pair;
         }
@@ -1404,6 +1516,10 @@ int main(int argc, char** argv)
 #endif
     go_to(app, first);
     app->pair_beacon = link_beacon;
+    if (!join_link.empty())
+    {
+        open_link(app, join_link.c_str());
+    }
     app->editor.active = edit && (first == Screen::gamepad || first == Screen::remote_play);
     app->devices_open = open_devices;
     app->running = true;

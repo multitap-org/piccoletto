@@ -65,6 +65,16 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="piccoletto" android:host="pair" />
             </intent-filter>
+            <!-- A guest link (design-notes "Guest links"): the join page on the
+                 beacon opens piccoletto://join/<room>?t=<token>[&b=<beacon>]
+                 (an intent with piccoletto in the browser as the fallback).
+                 REMOTE PLAY as a guest, see PiccolettoActivity / open_link. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="piccoletto" android:host="join" />
+            </intent-filter>
         </activity>
     </application>
 

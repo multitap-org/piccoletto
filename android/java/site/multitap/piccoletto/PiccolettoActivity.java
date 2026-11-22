@@ -57,6 +57,11 @@ public class PiccolettoActivity extends SDLActivity {
             list.add("--pair-link");
             list.add(link);
         }
+        String join = joinLink(getIntent());
+        if (join != null) {
+            list.add("--join");
+            list.add(join);
+        }
         return list.toArray(new String[0]);
     }
 
@@ -67,6 +72,9 @@ public class PiccolettoActivity extends SDLActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         String link = pairLink(intent);
+        if (link == null) {
+            link = joinLink(intent);
+        }
         if (link != null) {
             SDLActivity.onNativeDropFile(link);
         }
@@ -102,5 +110,19 @@ public class PiccolettoActivity extends SDLActivity {
             return null;
         }
         return "https://get-piccolo.app/pair/#" + fields;
+    }
+
+    // piccoletto://join/<room>?t=<token>[&b=<beacon>] as it came (net_guest.h
+    // reads that form); null if it isn't one. Checked again in C++.
+    private static String joinLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) {
+            return null;
+        }
+        Uri data = intent.getData();
+        if (data == null || !"piccoletto".equals(data.getScheme()) || !"join".equals(data.getHost())) {
+            return null;
+        }
+        String text = data.toString();
+        return text.length() <= 256 ? text : null;
     }
 }

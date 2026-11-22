@@ -298,6 +298,16 @@ static void discover(Hosts* hosts, double now)
 
 static void on_ready(Hosts* hosts, const NetClientEvent* event, NetAddress address)
 {
+    if (event->guest)
+    {
+        // The link's host proved the token: nothing to save.
+        hosts->guest_level = event->guest_level;
+        hosts->link = LinkStatus::ready;
+        hosts->linked = HOSTS_GUEST;
+        SDL_Log("Network: joined %s's game as a guest (%s)", hosts->guest_host.name.c_str(),
+                event->guest_level == NetGuestLevel::play ? "watch + play" : "watch");
+        return;
+    }
     if (event->newly_paired)
     {
         rebuild_known(hosts);
@@ -596,12 +606,32 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         }
         return;
     }
+    // A guest's port at the host (or none: it watches).
+    uint8_t guest_port = NET_GUEST_NO_PORT;
+    if (event->size > 0 && net_guest_read_port(event->data, event->size, &guest_port))
+    {
+        if (guest_port != hosts->guest_port)
+        {
+            SDL_Log("Network: as a guest, %s", guest_port == NET_GUEST_NO_PORT ? "no port (watching)" : "on a port");
+        }
+        hosts->guest_port = guest_port;
+        hosts->pad_port = guest_port == NET_GUEST_NO_PORT ? static_cast<int8_t>(-1) : static_cast<int8_t>(guest_port);
+        hosts->controllers_known = true;
+        return;
+    }
     // Whether a game runs (sent when connected and when it changes).
     if (event->size > 0 && event->data[0] == NET_GAME_STATE_MESSAGE)
     {
         if (net_content_read_game_state(event->data, event->size, &hosts->game))
         {
             hosts->game_known = true;
+            if (hosts->linked == HOSTS_GUEST && !hosts->game.game.empty())
+            {
+                // A guest knows its host by the game (no name was paired).
+                char title[NET_GUEST_MAX_TITLE + 1];
+                net_guest_title_clean(hosts->game.game.c_str(), title);
+                hosts->guest_host.name = title;
+            }
             SDL_Log("Network: the host %s", hosts->game.running ? "runs a game" : "runs no game");
         }
         return;
@@ -627,9 +657,10 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
 // (DEVICES moves them), devices_watch below it (the ports' tabs, read only).
 static void send_devices_request(Hosts* hosts)
 {
-    if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0)
+    if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0 ||
+        hosts->linked >= static_cast<int32_t>(hosts->known.size()))
     {
-        return;
+        return;   // a guest has no DEVICES
     }
     bool full = net_access_allows(hosts->known[static_cast<size_t>(hosts->linked)].access, NetAccessLevel::full);
     uint8_t message[16];
@@ -716,10 +747,21 @@ static void resolve_done(Hosts* hosts)
         return;
     }
     NetClient* client = &hosts->net.client;
-    bool started = resolve->pairing ?
-                       net_client_pair_beacon(client, resolve->servers, resolve->count, resolve->code) :
-                       net_client_connect_beacon(client, resolve->servers, resolve->count,
-                                                 static_cast<uint32_t>(resolve->index));
+    bool started = false;
+    if (resolve->pairing)
+    {
+        started = net_client_pair_beacon(client, resolve->servers, resolve->count, resolve->code);
+    }
+    else if (resolve->index == HOSTS_GUEST)
+    {
+        started = hosts->has_guest &&
+                  net_client_join_guest(client, &hosts->guest_link, resolve->servers, resolve->count);
+    }
+    else
+    {
+        started = net_client_connect_beacon(client, resolve->servers, resolve->count,
+                                            static_cast<uint32_t>(resolve->index));
+    }
     SDL_Log("Network: %s through %s (%u address(es))%s", resolve->pairing ? "pairing" : "connecting", resolve->name,
             static_cast<unsigned>(resolve->count), started ? "" : ": couldn't start");
     if (started)
@@ -746,6 +788,27 @@ static void resolve_done(Hosts* hosts)
 // hole punching, then WebRTC); in a browser WebRTC through the signaling.
 static bool start_connect(Hosts* hosts, int32_t index)
 {
+    if (index == HOSTS_GUEST)
+    {
+        // A guest link: only through its beacon (UDP, then WebRTC).
+        if (!hosts->has_guest)
+        {
+            return false;
+        }
+        hosts->connecting_to = NetAddress{};
+        use_beacon(hosts, hosts->guest_beacon);
+        if (hosts->lan)
+        {
+            if (!resolve_start(hosts, hosts->guest_beacon))
+            {
+                return false;
+            }
+            hosts->resolve.pairing = false;
+            hosts->resolve.index = HOSTS_GUEST;
+            return true;
+        }
+        return net_client_join_guest(&hosts->net.client, &hosts->guest_link, nullptr, 0);
+    }
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
     if (hosts->lan && host->address.port != 0 && (host->online || !host->internet) && !hosts->lan_failed)
     {
@@ -819,6 +882,13 @@ static void update_locked(Hosts* hosts, double now)
                     hosts->has_tuning_result = false;
                     send_tuning(hosts);
                 }
+                if (hosts->linked == HOSTS_GUEST)
+                {
+                    // A guest: its port comes by itself; no speed test, no controllers.
+                    hosts->guest_port = NET_GUEST_NO_PORT;
+                    hosts->measure_wanted = false;
+                    break;
+                }
                 uint8_t request[16];
                 size_t size = net_settings_write_controllers_request(request, sizeof(request), hosts->next_request++);
                 net_client_send(&hosts->net.client, NetChannel::control, request, size);
@@ -846,6 +916,13 @@ static void update_locked(Hosts* hosts, double now)
             break;
         }
         case NetClientEventType::access:
+            if (event.guest)
+            {
+                hosts->guest_level = event.guest_level;
+                SDL_Log("Network: the host set this guest to %s",
+                        event.guest_level == NetGuestLevel::play ? "watch + play" : "watch");
+                break;
+            }
             if (hosts->linked >= 0 && hosts->linked < static_cast<int32_t>(hosts->known.size()))
             {
                 KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
@@ -930,6 +1007,15 @@ static void update_locked(Hosts* hosts, double now)
             {
                 hosts->link = LinkStatus::failed;
                 hosts->refusal = NetClientRefusal::connection;
+                // A guest the host said goodbye to: why.
+                if (event.guest && event.guest_bye == NetGuestBye::kicked)
+                {
+                    hosts->refusal = NetClientRefusal::guest_kicked;
+                }
+                else if (event.guest && event.guest_bye == NetGuestBye::ended)
+                {
+                    hosts->refusal = NetClientRefusal::guest_link;
+                }
             }
             break;
         }
@@ -937,8 +1023,9 @@ static void update_locked(Hosts* hosts, double now)
     if (hosts->connect_pending && !client_busy(hosts))
     {
         hosts->connect_pending = false;
-        if (hosts->linked < 0 || hosts->linked >= static_cast<int32_t>(hosts->known.size()) ||
-            !start_connect(hosts, hosts->linked))
+        bool valid = hosts->linked == HOSTS_GUEST ||
+                     (hosts->linked >= 0 && hosts->linked < static_cast<int32_t>(hosts->known.size()));
+        if (!valid || !start_connect(hosts, hosts->linked))
         {
             hosts->link = LinkStatus::failed;
             hosts->refusal = NetClientRefusal::connection;
@@ -1060,7 +1147,8 @@ static bool pair_locked(Hosts* hosts, NetAddress address, const char* code)
 static bool connect_locked(Hosts* hosts, int32_t index)
 {
     hosts->measure_only = false;   // a mode wants the connection: it stays
-    if (!hosts->ok || index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
+    bool guest = index == HOSTS_GUEST && hosts->has_guest;
+    if (!hosts->ok || (!guest && (index < 0 || index >= static_cast<int32_t>(hosts->known.size()))))
     {
         return false;
     }
@@ -1187,9 +1275,10 @@ bool hosts_measuring(const Hosts* hosts, int32_t index)
 
 static void send_pad_locked(Hosts* hosts, const RetroPad* pad)
 {
-    if (!hosts->ok || hosts->link != LinkStatus::ready)
+    if (!hosts->ok || hosts->link != LinkStatus::ready ||
+        (hosts->linked == HOSTS_GUEST && hosts->guest_level != NetGuestLevel::play))
     {
-        return;
+        return;   // a guest that only watches has no pad there
     }
     NetRetroPadState state;
     state.buttons = pad->buttons;
@@ -1524,7 +1613,70 @@ const char* hosts_refusal_text(NetClientRefusal refusal)
     // Across the internet (through the beacon).
     case NetClientRefusal::beacon_unreachable: return "NO ANSWER FROM THE INTERNET SERVER";
     case NetClientRefusal::host_offline:   return "IT ISN'T ONLINE";
-    case NetClientRefusal::no_route:       return "COULDN'T CONNECT";
+    case NetClientRefusal::no_route:       return "COULDN'T CONNECT DIRECTLY TO THE HOST'S NETWORK";
+    // Guest links.
+    case NetClientRefusal::guest_full:     return "SESSION FULL: ALL SEATS ARE TAKEN";
+    case NetClientRefusal::guest_link:     return "THIS SESSION ENDED, OR THE HOST MADE A NEW LINK";
+    case NetClientRefusal::guest_kicked:   return "THE HOST REMOVED YOU FROM THIS SESSION";
     }
     return "";
+}
+
+// --- Guest links -------------------------------------------------------------------
+
+bool hosts_set_guest(Hosts* hosts, const char* text)
+{
+    NetGuestLink link;
+    char beacon[NET_GUEST_MAX_BEACON];
+    if (!net_guest_link_parse(text, &link, beacon, sizeof(beacon)))
+    {
+        return false;
+    }
+    if (hosts->has_guest && std::strcmp(link.token, hosts->guest_link.token) == 0)
+    {
+        net_guest_link_wipe(&link);
+        return true;   // the same link again (the page reloaded, a second tap)
+    }
+    hosts_clear_guest(hosts);
+    hosts->guest_link = link;
+    net_guest_link_wipe(&link);
+    // The default beacon is named "" like a paired host's.
+    hosts->guest_beacon = std::strcmp(beacon, NET_BEACON_DEFAULT_SERVER) == 0 ? "" : beacon;
+    hosts->guest_host = KnownHost{};
+    hosts->guest_host.name = "GUEST";
+    hosts->guest_host.internet = true;
+    hosts->guest_host.access = NetAccessLevel::stream;   // remote play, never more
+    hosts->guest_host.beacon = hosts->guest_beacon;
+    hosts->guest_level = NetGuestLevel::watch;
+    hosts->guest_port = NET_GUEST_NO_PORT;
+    hosts->has_guest = true;
+    SDL_Log("Network: a guest link (room %s)", hosts->guest_link.room);
+    return true;
+}
+
+void hosts_clear_guest(Hosts* hosts)
+{
+    if (!hosts->has_guest)
+    {
+        return;
+    }
+    if (hosts->linked == HOSTS_GUEST)
+    {
+        hosts_disconnect(hosts);
+    }
+    net_guest_link_wipe(&hosts->guest_link);
+    hosts->has_guest = false;
+}
+
+const KnownHost* hosts_host(const Hosts* hosts, int32_t index)
+{
+    if (index == HOSTS_GUEST)
+    {
+        return hosts->has_guest ? &hosts->guest_host : nullptr;
+    }
+    if (index < 0 || index >= static_cast<int32_t>(hosts->known.size()))
+    {
+        return nullptr;
+    }
+    return &hosts->known[static_cast<size_t>(index)];
 }

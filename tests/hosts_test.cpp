@@ -404,6 +404,22 @@ int main(int argc, char** argv)
     Hosts* hosts = new Hosts{};
     check(hosts_create(hosts, phone_dir.c_str(), "TEST PHONE"), "hosts_create");
     check(hosts->known.empty(), "nothing paired at first");
+
+    // A guest link: the host at HOSTS_GUEST, outside the paired list, never saved.
+    check(!hosts_set_guest(hosts, "https://beacon.get-piccolo.app/join/7hqelxhbgx2e4#abcdefghijklmnopqrstuvwxyz"),
+          "a link whose room doesn't match its token isn't taken");
+    check(hosts_set_guest(hosts, "piccoletto://join/7hqelxhbgx2e3?t=abcdefghijklmnopqrstuvwxyz&b=my.beacon"),
+          "a guest link from Android's intent");
+    const KnownHost* guest = hosts_host(hosts, HOSTS_GUEST);
+    check(guest != nullptr && guest->access == NetAccessLevel::stream && hosts->guest_beacon == "my.beacon",
+          "its host may stream, through the link's beacon");
+    check(hosts->known.empty() && !host_fs_exists((phone_dir + "/net_hosts.cfg").c_str()), "nothing paired or saved");
+    hosts_clear_guest(hosts);
+    check(hosts_host(hosts, HOSTS_GUEST) == nullptr, "cleared");
+    check(hosts_set_guest(hosts, "https://get-piccolo.app/play/piccoletto/#join=7hqelxhbgx2e3.abcdefghijklmnopqrstuvwxyz") &&
+              hosts->guest_beacon.empty(),
+          "piccoletto web's hash, the default beacon");
+    hosts_clear_guest(hosts);
     Pump pump;
     pump.hosts = hosts;
     pump.access = access;

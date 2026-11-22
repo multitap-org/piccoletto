@@ -41,6 +41,13 @@
 // the beacon's signaling. In a browser that's the only way (no LAN there:
 // no discovery, no ENet; WebRTC only).
 //
+// Guest links (design-notes "Guest links", Andrés 2026-11-22): a link a
+// piccolo made for its running game (https://<beacon>/join/<room>#<token>,
+// net_guest.h) lets this phone watch, and play when the host gave a seat and
+// a port is free, with no pairing. It's the host at HOSTS_GUEST
+// (hosts_set_guest): not in `known`, never saved, met only through the
+// beacon; the throwaway key is net_client's.
+//
 // A discovered host is matched to a paired one by its last address: the
 // discovery reply has no key (a fingerprint in it would match after an
 // address change; to talk over with the netcode side). A host is "online"
@@ -56,6 +63,7 @@
 #include "net_beacon.h"
 #include "net_client_service.h"
 #include "net_content.h"
+#include "net_guest.h"
 #include "net_host.h"
 #include "net_input.h"
 #include "net_settings.h"   // NetDevice
@@ -64,6 +72,7 @@
 #include "settings_file.h"
 
 constexpr int32_t HOSTS_MAX_FOUND = 16;
+constexpr int32_t HOSTS_GUEST = -2;   // the guest link's host, as an index (hosts_set_guest)
 
 struct KnownHost
 {
@@ -107,7 +116,7 @@ struct HostsResolve
     bool          cancelled = false;        // nobody wants it any more: dropped when it ends
     bool          pairing = false;          // else connecting to `index`
     char          code[NET_PAIR_CODE_DIGITS + 1] = {};   // pairing: ours
-    int32_t       index = -1;               // connecting: the known host
+    int32_t       index = -1;               // connecting: the known host (HOSTS_GUEST: the guest link)
 };
 
 struct FoundHost
@@ -189,6 +198,13 @@ struct Hosts
     std::vector<NetDevice> devices;
     NetClientRefusal       refusal = NetClientRefusal::none;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
+    // Guest links.
+    bool                   has_guest = false;   // a guest link is set (hosts_set_guest)
+    KnownHost              guest_host;          // its host, as the screens see it (access: STREAM)
+    NetGuestLink           guest_link;
+    std::string            guest_beacon;        // the link's beacon ("" = the default)
+    NetGuestLevel          guest_level = NetGuestLevel::watch;   // what the host gives us now
+    uint8_t                guest_port = NET_GUEST_NO_PORT;       // the port our pad plays on there
 };
 
 // `settings_dir`: where the files above go. False (and networking off, the
@@ -223,6 +239,13 @@ bool hosts_pair_waiting(Hosts* hosts);
 // the links to come (a game to join). Its beacon ("" = the default), the one
 // PAIR's INTERNET goes through. False if `text` isn't one.
 bool hosts_link_beacon(const char* text, std::string* beacon);
+// A guest link (any form, net_guest_link_parse): the host at HOSTS_GUEST, to
+// connect to with hosts_connect. False if `text` isn't one. hosts_clear_guest
+// forgets it (leaving REMOTE PLAY).
+bool hosts_set_guest(Hosts* hosts, const char* text);
+void hosts_clear_guest(Hosts* hosts);
+// The host at `index` (HOSTS_GUEST included), or nullptr.
+const KnownHost* hosts_host(const Hosts* hosts, int32_t index);
 // Connect to a paired host (entering GAMEPAD...) / leave it. The speed test
 // runs once it's ready (once per run for each host).
 bool hosts_connect(Hosts* hosts, int32_t index);
