@@ -243,7 +243,9 @@ if(NOT ANDROID AND NOT EMSCRIPTEN)
     endif()
 endif()
 
-if(MULTITAP_BUILD_TESTS AND NOT EMSCRIPTEN)
+# beacon_core (the beacon server, which the test runs for pair links) is only
+# built on Linux, like frontends-common's own beacon test.
+if(MULTITAP_BUILD_TESTS AND NOT EMSCRIPTEN AND TARGET beacon_core)
     # src/hosts.* against a host in the same process over loopback (pairing,
     # connecting, discovery). Its scratch folder is emptied first.
     add_executable(piccoletto_hosts_test tests/hosts_test.cpp src/hosts.cpp)
