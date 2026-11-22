@@ -8,14 +8,15 @@
 # Windows' own DLLs and vulkan-1.dll (installed with the GPU driver); any
 # other DLL it ever links from MSYS2 is copied next to it (ntldd). librashader
 # (REMOTE PLAY's slang shaders, loaded at run time) is built and shipped too.
+# Tags: release.yml calls this workflow for v* tags (workflow_call).
 name: Windows
 
 on:
   push:
     branches: [main]
-    tags: ['*']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   windows:

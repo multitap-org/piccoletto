@@ -1,0 +1,136 @@
+# A v* tag becomes a GitHub Release with every package and a manifest.cfg,
+# the same way as piccolo's release.yml (cores-server's publish-apps.sh reads
+# the manifest).
+#
+#   vX.Y.Z          stable channel
+#   vX.Y.Z-beta.N   prerelease, beta channel
+#
+# It builds through the usual workflows (workflow_call), so a release is
+# exactly what CI builds on main. Assets, piccoletto-<version>-<target>.<ext>:
+#   windows-x86_64.zip  windows-arm64.zip
+#   linux-x86_64.flatpak  linux-aarch64.flatpak
+#   android-arm64-v8a.apk  android-armeabi-v7a-legacy.apk
+# No web asset: piccoletto's browser build ships inside piccolo's web package.
+# manifest.cfg: app, version, tag, then one [<target>] block per asset with
+# asset, size, sha256.
+#
+# Refuses to release without the Android release key in the secrets (never a
+# debug APK in a release) or when the tag doesn't match
+# PICCOLETTO_VERSION_BASE.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  check:
+    name: Check the tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version and release key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#v}"
+          if ! echo "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$'; then
+            echo "tag $tag is not vX.Y.Z or vX.Y.Z-beta.N"
+            exit 1
+          fi
+          base=$(sed -n 's/^set(PICCOLETTO_VERSION_BASE \([^)]*\))$/\1/p' CMakeLists.txt)
+          case "$version" in
+            "$base"|"$base".*|"$base"-*) ;;
+            *) echo "tag $tag doesn't match PICCOLETTO_VERSION_BASE $base in CMakeLists.txt"; exit 1 ;;
+          esac
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASS" ]; then
+            echo "no Android release key in the secrets: a release never ships a debug APK"
+            exit 1
+          fi
+
+  android:
+    needs: check
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
+  flatpak:
+    needs: check
+    uses: ./.github/workflows/flatpak.yml
+
+  windows:
+    needs: check
+    uses: ./.github/workflows/windows.yml
+
+  release:
+    name: GitHub Release
+    needs: [android, flatpak, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Artifacts are found by file name, not by artifact name (the Flatpak
+      # action names its own).
+      - name: Release files
+        run: |
+          tag="${{ github.ref_name }}"
+          version="${tag#v}"
+          mkdir release
+          find artifacts -type f | sort
+
+          one() {   # one <find -name pattern>: exactly one file
+            found=$(find artifacts -type f -name "$1")
+            if [ "$(echo "$found" | grep -c .)" != 1 ]; then
+              echo "expected one $1, found: $found"
+              exit 1
+            fi
+            echo "$found"
+          }
+          for arch in x86_64 arm64; do
+            dir=$(find artifacts -type d -path "*piccoletto-windows-$arch")
+            [ -n "$dir" ] || { echo "no Windows $arch folder"; exit 1; }
+            (cd "$dir" && zip -q -r -9 "$GITHUB_WORKSPACE/release/piccoletto-$version-windows-$arch.zip" .)
+          done
+          for arch in x86_64 aarch64; do
+            cp "$(one "piccoletto-$arch.flatpak")" "release/piccoletto-$version-linux-$arch.flatpak"
+          done
+          cp "$(one piccoletto.apk)" "release/piccoletto-$version-android-arm64-v8a.apk"
+          cp "$(one piccoletto-legacy.apk)" "release/piccoletto-$version-android-armeabi-v7a-legacy.apk"
+
+          manifest=release/manifest.cfg
+          {
+            echo "# piccoletto $tag: the release's files (release.yml)"
+            echo "app=piccoletto"
+            echo "version=$version"
+            echo "tag=$tag"
+          } > "$manifest"
+          for file in release/piccoletto-*; do
+            asset="${file#release/}"
+            target="${asset#piccoletto-$version-}"
+            target="${target%.*}"
+            {
+              echo ""
+              echo "[$target]"
+              echo "asset=$asset"
+              echo "size=$(stat -c %s "$file")"
+              echo "sha256=$(sha256sum "$file" | cut -d ' ' -f 1)"
+            } >> "$manifest"
+          done
+          cat "$manifest"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ github.ref_name }}"
+          flags="--latest"
+          case "$tag" in
+            *-beta.*) flags="--prerelease" ;;
+          esac
+          gh release create "$tag" release/* --repo "${{ github.repository }}" \
+            --title "piccoletto ${tag#v}" --verify-tag --generate-notes $flags

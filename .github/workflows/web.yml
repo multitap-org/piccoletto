@@ -1,6 +1,7 @@
 # Builds piccoletto for the browser (web/build.sh: Emscripten, WebGL 2) and
 # uploads piccoletto.js / .wasm with its page. piccolo's web package carries
 # it as piccoletto/ (piccolo's web/package.sh with PICCOLETTO=...).
+# Tags: release.yml calls this workflow for v* tags (workflow_call).
 name: Web
 
 on:
@@ -8,6 +9,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 env:
   EMSDK_VERSION: 6.0.13   # piccolo's web build pins the same one

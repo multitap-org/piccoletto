@@ -20,7 +20,15 @@
 #
 # Steps: native library (CMake, with hosts-common's Android toolchain), Java
 # (javac), dex (d8), manifest and resources (aapt2: icon, TV banner), then the native library and dex go into
-# the APK, which is aligned (zipalign) and signed with the debug key (apksigner).
+# the APK, which is aligned (zipalign) and signed (apksigner).
+#
+# The key:
+#   PICCOLETTO_KEYSTORE set: signed with the release key in that keystore
+#     (PICCOLETTO_KEY_ALIAS, PICCOLETTO_KEYSTORE_PASS; the key's password is
+#     the same), as CI does when the repository has the secrets.
+#   Not set: signed with the standard Android debug key. Unlike piccolo, the
+#     package and name stay the same (no .debug variant yet): installing over
+#     a build signed by the other key needs an uninstall first.
 #
 # Tools, overridable from the environment:
 #   ANDROID_NDK_ROOT  NDK, only its sysroot is used (default ~/Android/ndk/android-ndk-r30)
@@ -160,15 +168,21 @@ fi
 zipalign -f -p 4 "$apk_dir/unaligned.apk" "$apk_dir/aligned.apk"
 
 echo "== sign"
-# The standard Android debug key, the one Android Studio would create (shared
-# with piccolo's builds).
-keystore="$HOME/.android/debug.keystore"
-if [ ! -f "$keystore" ]; then
-    mkdir -p "$HOME/.android"
-    "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$keystore" -storepass android -keypass android \
-        -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+if [ -n "${PICCOLETTO_KEYSTORE:-}" ]; then
+    JAVA_HOME="$JAVA_HOME" apksigner sign --ks "$PICCOLETTO_KEYSTORE" --ks-key-alias "${PICCOLETTO_KEY_ALIAS:?}" \
+        --ks-pass env:PICCOLETTO_KEYSTORE_PASS --key-pass env:PICCOLETTO_KEYSTORE_PASS \
+        --out "$build/$apk_name" "$apk_dir/aligned.apk"
+else
+    # The standard Android debug key, the one Android Studio would create
+    # (shared with piccolo's builds).
+    keystore="$HOME/.android/debug.keystore"
+    if [ ! -f "$keystore" ]; then
+        mkdir -p "$HOME/.android"
+        "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$keystore" -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+    fi
+    JAVA_HOME="$JAVA_HOME" apksigner sign --ks "$keystore" --ks-pass pass:android --ks-key-alias androiddebugkey \
+        --out "$build/$apk_name" "$apk_dir/aligned.apk"
 fi
-JAVA_HOME="$JAVA_HOME" apksigner sign --ks "$keystore" --ks-pass pass:android --ks-key-alias androiddebugkey \
-    --out "$build/$apk_name" "$apk_dir/aligned.apk"
 apksigner verify "$build/$apk_name"
 echo "built $build/$apk_name"

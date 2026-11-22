@@ -1,9 +1,18 @@
-# Builds piccoletto's Android APK (arm64-v8a) with android/build-apk.sh, the
-# same script as on the development machine, and uploads it as an artifact.
-# Install it with:
+# Builds piccoletto's Android APKs with android/build-apk.sh, the same script
+# as on the development machine, and uploads them as artifacts:
+#   piccoletto.apk          arm64-v8a, Vulkan (OpenGL ES 3 fallback)
+#   piccoletto-legacy.apk   armeabi-v7a, Android 5+, OpenGL ES 2 only
+#                           (build-apk.sh --legacy)
+# Install one with:
 #   adb install --no-incremental -r piccoletto.apk
-# Signed with a debug key made for each run: installing over a build signed
-# by another key needs an uninstall first.
+# Signed with the release key from the repository secrets
+# ANDROID_KEYSTORE_BASE64 (the PKCS12 keystore, base64) and
+# ANDROID_KEYSTORE_PASS, key alias piccoletto. Where the secrets aren't
+# available (pull requests from forks) it's signed with a debug key made for
+# that run: installing over a build signed by the other key needs an
+# uninstall first.
+#
+# Tags: release.yml calls this workflow for v* tags (workflow_call).
 #
 # librashader (shaders) goes in too: android/build-librashader.sh with
 # rustup's aarch64-linux-android target and the NDK's clang, cached by the
@@ -18,9 +27,9 @@ name: Android
 on:
   push:
     branches: [main]
-    tags: ['*']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 env:
   NDK_VERSION: r30
@@ -29,8 +38,20 @@ env:
 
 jobs:
   android:
-    name: Android (arm64-v8a)
+    name: Android (${{ matrix.name }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arm64-v8a
+            flags: ''
+            apk: piccoletto.apk
+            artifact: piccoletto-android-arm64
+          - name: armeabi-v7a, legacy
+            flags: --legacy
+            apk: piccoletto-legacy.apk
+            artifact: piccoletto-android-armv7-legacy
     steps:
       - uses: actions/checkout@v4
         with:
@@ -77,7 +98,15 @@ jobs:
             CARGO="$(command -v cargo)" android/build-librashader.sh
 
       - name: Build the APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PICCOLETTO_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
         run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            export PICCOLETTO_KEYSTORE="$RUNNER_TEMP/release.p12"
+            export PICCOLETTO_KEY_ALIAS=piccoletto
+          fi
           ndk="$HOME/android-ndk-${NDK_VERSION}"
           tools="$ANDROID_HOME/build-tools/${BUILD_TOOLS}"
           export PATH="$tools:$PATH"
@@ -88,9 +117,9 @@ jobs:
           export D8_JAR="$tools/lib/d8.jar"
           export JAVA_HOME="$JAVA_HOME_17_X64"
           export BUILD_TYPE=Release
-          android/build-apk.sh
+          android/build-apk.sh ${{ matrix.flags }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: piccoletto-android-arm64
-          path: android/build/piccoletto.apk
+          name: ${{ matrix.artifact }}
+          path: android/build/${{ matrix.apk }}

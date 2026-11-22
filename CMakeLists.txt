@@ -183,7 +183,7 @@ endif()
 target_link_libraries(piccoletto PRIVATE frontend_common frontend_net retroui)
 
 set(PICCOLETTO_GENERATED "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(PICCOLETTO_VERSION_BASE 0.1)
+set(PICCOLETTO_VERSION_BASE 0.3.0)
 multitap_version(PICCOLETTO_VERSION ${PICCOLETTO_VERSION_BASE} "${CMAKE_CURRENT_SOURCE_DIR}")
 multitap_write_version_header("${PICCOLETTO_GENERATED}" piccoletto PICCOLETTO_VERSION "${PICCOLETTO_VERSION}")
 target_include_directories(piccoletto PRIVATE "${PICCOLETTO_GENERATED}")
