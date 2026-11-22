@@ -569,6 +569,33 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         }
         return;
     }
+    // The actions the host offers us (sent when connected, again whenever
+    // the list or a state in it changes): only PAUSE is used so far.
+    if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::actions_result))
+    {
+        uint32_t id = 0;
+        std::vector<NetAction> actions;
+        if (net_settings_read_actions(event->data, event->size, &id, &actions))
+        {
+            bool offered = false;
+            uint32_t causes = 0;
+            for (size_t i = 0; i < actions.size(); i++)
+            {
+                if (actions[i].key == "pause" && actions[i].kind == NetActionKind::toggle)
+                {
+                    offered = true;
+                    causes = actions[i].state;
+                }
+            }
+            if (offered && causes != hosts->pause_causes)
+            {
+                SDL_Log("Network: the host's game %s (causes 0x%x)", causes != 0 ? "is paused" : "runs", causes);
+            }
+            hosts->pause_offered = offered;
+            hosts->pause_causes = offered ? causes : 0;
+        }
+        return;
+    }
     // Whether a game runs (sent when connected and when it changes).
     if (event->size > 0 && event->data[0] == NET_GAME_STATE_MESSAGE)
     {
@@ -714,12 +741,13 @@ static void resolve_done(Hosts* hosts)
 
 // Connects to the known host `index` as an already paired device: on the
 // LAN when it's there (answering discovery, or never met across the
-// internet), else through its beacon: its addresses looked up first (UDP
+// internet, unless that try just got no answer), else through its beacon
+// (the default one for hosts paired on the LAN): its addresses looked up first (UDP
 // hole punching, then WebRTC); in a browser WebRTC through the signaling.
 static bool start_connect(Hosts* hosts, int32_t index)
 {
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
-    if (hosts->lan && host->address.port != 0 && (host->online || !host->internet))
+    if (hosts->lan && host->address.port != 0 && (host->online || !host->internet) && !hosts->lan_failed)
     {
         hosts->connecting_to = host->address;
         return net_client_connect(&hosts->net.client, host->address, nullptr);
@@ -782,6 +810,7 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->devices.clear();
                 hosts->headless_on = false;
                 hosts->headless_yours = false;
+                hosts->pause_offered = false;
                 send_devices_request(hosts);
                 if (hosts->stream_flags != 0)
                 {
@@ -863,6 +892,20 @@ static void update_locked(Hosts* hosts, double now)
                     hosts->refusal_still_known = true;
                 }
             }
+            // A host paired on the LAN that didn't answer at its LAN address
+            // (the phone left home): through the default beacon instead,
+            // once this connection is gone (Andrés, 2026-11-21).
+            if (hosts->link == LinkStatus::connecting && event.refusal == NetClientRefusal::connection &&
+                hosts->connecting_to.port != 0 && !hosts->lan_failed && hosts->linked >= 0 &&
+                hosts->linked < static_cast<int32_t>(hosts->known.size()) &&
+                !hosts->known[static_cast<size_t>(hosts->linked)].online)
+            {
+                SDL_Log("Network: no answer on the LAN; through the beacon");
+                hosts->lan_failed = true;
+                hosts->connect_pending = true;
+                hosts->refusal = NetClientRefusal::none;
+                break;
+            }
             if (hosts->link == LinkStatus::connecting)
             {
                 hosts->link = LinkStatus::failed;
@@ -873,6 +916,7 @@ static void update_locked(Hosts* hosts, double now)
         case NetClientEventType::closed:
             hosts->speed.running = false;
             hosts->game_known = false;
+            hosts->pause_offered = false;
             hosts->devices_known = false;
             hosts->devices.clear();
             hosts->headless_on = false;
@@ -1023,6 +1067,7 @@ static bool connect_locked(Hosts* hosts, int32_t index)
     hosts->link = LinkStatus::connecting;
     hosts->linked = index;
     hosts->refusal = NetClientRefusal::none;
+    hosts->lan_failed = false;
     // The last connection may still be closing (HOME, then a mode right
     // away): then hosts_update connects once it's gone.
     hosts->connect_pending = client_busy(hosts);
@@ -1048,6 +1093,7 @@ void hosts_disconnect(Hosts* hosts)
     hosts->speed.running = false;
     hosts->has_stats = false;
     hosts->connect_pending = false;
+    hosts->pause_offered = false;
     hosts->devices_wanted = false;   // the next mode asks again if it shows DEVICES
     hosts->devices_known = false;
     hosts->devices.clear();
@@ -1099,7 +1145,6 @@ static bool measure_locked(Hosts* hosts, int32_t index)
     {
         return false;
     }
-    const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
     if (hosts->link == LinkStatus::ready && hosts->linked == index)
     {
         if (!hosts->speed.running)
@@ -1108,7 +1153,7 @@ static bool measure_locked(Hosts* hosts, int32_t index)
         }
         return true;
     }
-    if ((!host->online && !host->internet) || hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready ||
+    if (hosts->link == LinkStatus::connecting || hosts->link == LinkStatus::ready ||
         hosts->pending_unpair >= 0)
     {
         return false;
@@ -1349,6 +1394,40 @@ int32_t hosts_game_running(const Hosts* hosts)
         return -1;
     }
     return hosts->game.running ? 1 : 0;
+}
+
+bool hosts_pause(const Hosts* hosts, uint32_t* causes)
+{
+    if (hosts->link != LinkStatus::ready || !hosts->pause_offered)
+    {
+        *causes = 0;
+        return false;
+    }
+    *causes = hosts->pause_causes;
+    return true;
+}
+
+void hosts_toggle_pause(Hosts* hosts)
+{
+    if (!hosts->ok || hosts->link != LinkStatus::ready || !hosts->pause_offered)
+    {
+        return;
+    }
+    // A toggle acts on the press; the release keeps press / release paired
+    // like every other action.
+    uint8_t press[64];
+    uint8_t release[64];
+    size_t press_size = net_settings_write_action(press, sizeof(press), "pause", true);
+    size_t release_size = net_settings_write_action(release, sizeof(release), "pause", false);
+    if (press_size == 0 || release_size == 0)
+    {
+        return;
+    }
+    net_client_service_lock(&hosts->net);
+    net_client_send(&hosts->net.client, NetChannel::control, press, press_size);
+    net_client_send(&hosts->net.client, NetChannel::control, release, release_size);
+    net_client_service_unlock(&hosts->net);
+    SDL_Log("Network: PAUSE sent (%s)", (hosts->pause_causes & NET_PAUSE_USER) != 0 ? "resume" : "pause");
 }
 
 int32_t hosts_pad_port(const Hosts* hosts)

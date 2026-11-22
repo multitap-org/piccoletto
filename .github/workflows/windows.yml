@@ -5,9 +5,9 @@
 #   ARM64:  CLANGARM64 (clang + libc++ + the Universal CRT) on GitHub's
 #           Windows ARM runner; MSYS2 has no GCC for ARM64.
 # The C/C++ runtimes are linked statically, so piccoletto.exe only needs
-# Windows' own DLLs and vulkan-1.dll (installed with the GPU driver).
-# librashader isn't built here yet: REMOTE PLAY has no shaders on Windows
-# (loaded at run time, so piccoletto runs without it).
+# Windows' own DLLs and vulkan-1.dll (installed with the GPU driver); any
+# other DLL it ever links from MSYS2 is copied next to it (ntldd). librashader
+# (REMOTE PLAY's slang shaders, loaded at run time) is built and shipped too.
 # Tags: release.yml calls this workflow for v* tags (workflow_call).
 name: Windows
 
@@ -54,15 +54,16 @@ jobs:
             cmake:p
             ninja:p
             vulkan-devel:p
+            ntldd:p
 
-      # The submodules the build uses. librashader only for its header (not
-      # recursive: its own submodules are test shaders and a naga fork).
+      # The submodules the build uses. deps/librashader not recursive: its own
+      # submodules are test shaders and a naga fork.
       - name: Submodules
         run: |
           git submodule update --init --recursive --depth 1 \
             deps/SDL deps/imgui deps/libsamplerate deps/gamemode deps/enet deps/monocypher deps/beacon \
             deps/common/hosts-common deps/common/frontends-common deps/common/retroui \
-            deps/piccolo-shaders
+            deps/piccolo-shaders deps/piccolo-shaders-legacy
           git submodule update --init --depth 1 deps/librashader
 
       # Release without warnings as errors. MULTITAP_PICCOLETTO_DIR is the
@@ -78,17 +79,60 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # Whatever piccoletto.exe links from MSYS2 goes next to it: every DLL
+      # ntldd resolves to the environment's bin folder, three passes so the
+      # DLLs just copied are followed too. Not vulkan-1.dll: the driver's
+      # loader must win (Windows looks in piccoletto's folder first).
+      - name: Copy MSYS2 DLLs
+        run: |
+          msys_bin=$(cygpath -w "$MSYSTEM_PREFIX/bin")
+          cd dist/piccoletto
+          for i in $(seq 3); do
+            for bin in $(ntldd -R *.exe | grep -iF "$msys_bin" | grep -iv 'vulkan-1\.dll' | cut -d">" -f2 | cut -d" " -f2); do
+              cp -vu "$bin" .
+            done
+          done
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      # Fails if piccoletto.exe still needs a DLL from MSYS2 (anything besides
-      # Windows' own and vulkan-1.dll).
+      # librashader (REMOTE PLAY's slang shaders), which piccoletto loads at
+      # run time from its own folder: only the C API with the Vulkan runtime.
+      # Built with the runner's Rust (MSVC target, as piccolo's CI), with the
+      # C runtime linked statically so the DLL needs no Visual C++
+      # redistributable.
+      - name: librashader
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+          CARGO_TARGET_DIR: ${{ github.workspace }}/build-librashader
+        run: |
+          cargo build --manifest-path deps/librashader/Cargo.toml -p librashader-capi --release --locked --no-default-features --features runtime-vulkan
+          Copy-Item build-librashader/release/librashader_capi.dll dist/piccoletto/librashader.dll
+          Copy-Item deps/librashader/LICENSE.md dist/piccoletto/librashader-LICENSE.md
+
+      # Fails if piccoletto.exe needs a C/C++ runtime or SDL DLL from MSYS2,
+      # or a DLL from MSYS2 that isn't in its folder (vulkan-1.dll comes with
+      # the driver), or librashader.dll a C/C++ runtime DLL.
       - name: Check DLL dependencies
         run: |
           objdump=$(command -v objdump || command -v llvm-objdump)
           "$objdump" -p dist/piccoletto/piccoletto.exe | grep 'DLL Name' | tee dlls.txt
           if grep -iE 'libstdc|libgcc|libwinpthread|libc\+\+|libunwind|SDL3' dlls.txt; then
             echo "piccoletto.exe depends on MSYS2 DLLs"
+            exit 1
+          fi
+          # Run from piccoletto's folder its own DLLs win, so anything still
+          # resolved to MSYS2's bin folder is missing from the package.
+          msys_bin=$(cygpath -w "$MSYSTEM_PREFIX/bin")
+          (cd dist/piccoletto && ntldd -R piccoletto.exe) | tee ntldd.txt
+          if grep -iF "$msys_bin" ntldd.txt | grep -iv 'vulkan-1\.dll'; then
+            echo "piccoletto.exe needs MSYS2 DLLs that aren't in its folder"
+            exit 1
+          fi
+          "$objdump" -p dist/piccoletto/librashader.dll | grep 'DLL Name' | tee rashader-dlls.txt
+          if grep -iE 'vcruntime|msvcp|api-ms-win-crt|libstdc|libgcc' rashader-dlls.txt; then
+            echo "librashader.dll depends on a C/C++ runtime DLL"
             exit 1
           fi
 

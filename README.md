@@ -56,4 +56,21 @@ Needs CMake 3.25+, Ninja, a C++20 compiler and the Vulkan loader + headers
 (see piccolo's README for the Linux packages SDL wants). CI builds the APK,
 the Flatpak and the Windows zip.
 
+### Windows
+
+From the **MSYS2 UCRT64** shell (CLANGARM64 on ARM64), checked out with LF
+endings:
+
+```sh
+pacman -S --needed git mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,vulkan-devel,ntldd,rust}
+git clone -c core.autocrlf=false --recursive https://github.com/multitap-org/piccoletto.git
+piccoletto/tools/build-windows.sh
+```
+
+`tools/build-windows.sh` builds piccoletto and librashader (REMOTE PLAY's
+slang shaders) and deploys them to `%USERPROFILE%\piccoletto` with the MSYS2
+DLLs they need (`--debug`, `--test`, `--no-librashader`; `--help` lists
+them). It's the same as piccolo's script; piccolo's `docs/compilation.md` has
+the steps one by one.
+
 MIT License (see LICENSE).
