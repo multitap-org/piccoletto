@@ -2,14 +2,15 @@
 # and aarch64, and uploads each .flatpak bundle as an artifact. Install one with:
 #   flatpak install --user piccoletto-<arch>.flatpak
 # The same steps as piccolo's workflow.
+# Tags: release.yml calls this workflow for v* tags (workflow_call).
 name: Flatpak
 
 on:
   push:
     branches: [main]
-    tags: ['*']
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   flatpak:
