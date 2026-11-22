@@ -172,6 +172,10 @@ struct Hosts
     // hidden (headless_state). Ends with the stream or the connection.
     bool                   headless_on = false;      // the host runs headless
     bool                   headless_yours = false;   // ... for this phone
+    // PAUSE (STREAM access, a game running): the host's "pause" action, from
+    // its action list (sent when connected and whenever it changes).
+    bool                   pause_offered = false;
+    uint32_t               pause_causes = 0;         // NET_PAUSE_* (net_settings.h): USER is the toggle
     // DEVICES (FULL access): who plays on the host's ports. Asked for once
     // (hosts_request_devices); the host sends the list again whenever it changes.
     bool                   devices_wanted = false;
@@ -252,6 +256,13 @@ void hosts_set_frame_queue(Hosts* hosts, uint32_t depth);
 void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats);
 // Whether a game runs on the connected host: 1 yes, 0 no, -1 not known yet.
 int32_t hosts_game_running(const Hosts* hosts);
+
+// PAUSE: false when the connected host doesn't offer it to this phone (no
+// game, below STREAM, not connected). Else why its game is paused
+// (NET_PAUSE_* bits, 0 = it runs): USER is the one hosts_toggle_pause sets
+// and lifts; the others (a window open there, its focus...) only it lifts.
+bool hosts_pause(const Hosts* hosts, uint32_t* causes);
+void hosts_toggle_pause(Hosts* hosts);
 
 // DEVICES: ask the connected host who plays on its ports (FULL access; also
 // after reconnecting). The list is in hosts->devices once devices_known.

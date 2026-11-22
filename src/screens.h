@@ -21,6 +21,7 @@ enum class NavAction
     measure,          // HOME: speed-test the selected host now
     go_headless,      // REMOTE PLAY: take the game (the host's window hides)
     play_on_host,     // REMOTE PLAY: give it back (the host shows its window again)
+    pause,            // GAMEPAD / REMOTE PLAY: the host's PAUSE (STREAM access): pause or resume its game
 };
 
 enum class Screen

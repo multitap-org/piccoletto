@@ -569,6 +569,33 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
         }
         return;
     }
+    // The actions the host offers us (sent when connected, again whenever
+    // the list or a state in it changes): only PAUSE is used so far.
+    if (event->size > 0 && event->data[0] == static_cast<uint8_t>(NetSettingsMessage::actions_result))
+    {
+        uint32_t id = 0;
+        std::vector<NetAction> actions;
+        if (net_settings_read_actions(event->data, event->size, &id, &actions))
+        {
+            bool offered = false;
+            uint32_t causes = 0;
+            for (size_t i = 0; i < actions.size(); i++)
+            {
+                if (actions[i].key == "pause" && actions[i].kind == NetActionKind::toggle)
+                {
+                    offered = true;
+                    causes = actions[i].state;
+                }
+            }
+            if (offered && causes != hosts->pause_causes)
+            {
+                SDL_Log("Network: the host's game %s (causes 0x%x)", causes != 0 ? "is paused" : "runs", causes);
+            }
+            hosts->pause_offered = offered;
+            hosts->pause_causes = offered ? causes : 0;
+        }
+        return;
+    }
     // Whether a game runs (sent when connected and when it changes).
     if (event->size > 0 && event->data[0] == NET_GAME_STATE_MESSAGE)
     {
@@ -783,6 +810,7 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->devices.clear();
                 hosts->headless_on = false;
                 hosts->headless_yours = false;
+                hosts->pause_offered = false;
                 send_devices_request(hosts);
                 if (hosts->stream_flags != 0)
                 {
@@ -888,6 +916,7 @@ static void update_locked(Hosts* hosts, double now)
         case NetClientEventType::closed:
             hosts->speed.running = false;
             hosts->game_known = false;
+            hosts->pause_offered = false;
             hosts->devices_known = false;
             hosts->devices.clear();
             hosts->headless_on = false;
@@ -1064,6 +1093,7 @@ void hosts_disconnect(Hosts* hosts)
     hosts->speed.running = false;
     hosts->has_stats = false;
     hosts->connect_pending = false;
+    hosts->pause_offered = false;
     hosts->devices_wanted = false;   // the next mode asks again if it shows DEVICES
     hosts->devices_known = false;
     hosts->devices.clear();
@@ -1364,6 +1394,40 @@ int32_t hosts_game_running(const Hosts* hosts)
         return -1;
     }
     return hosts->game.running ? 1 : 0;
+}
+
+bool hosts_pause(const Hosts* hosts, uint32_t* causes)
+{
+    if (hosts->link != LinkStatus::ready || !hosts->pause_offered)
+    {
+        *causes = 0;
+        return false;
+    }
+    *causes = hosts->pause_causes;
+    return true;
+}
+
+void hosts_toggle_pause(Hosts* hosts)
+{
+    if (!hosts->ok || hosts->link != LinkStatus::ready || !hosts->pause_offered)
+    {
+        return;
+    }
+    // A toggle acts on the press; the release keeps press / release paired
+    // like every other action.
+    uint8_t press[64];
+    uint8_t release[64];
+    size_t press_size = net_settings_write_action(press, sizeof(press), "pause", true);
+    size_t release_size = net_settings_write_action(release, sizeof(release), "pause", false);
+    if (press_size == 0 || release_size == 0)
+    {
+        return;
+    }
+    net_client_service_lock(&hosts->net);
+    net_client_send(&hosts->net.client, NetChannel::control, press, press_size);
+    net_client_send(&hosts->net.client, NetChannel::control, release, release_size);
+    net_client_service_unlock(&hosts->net);
+    SDL_Log("Network: PAUSE sent (%s)", (hosts->pause_causes & NET_PAUSE_USER) != 0 ? "resume" : "pause");
 }
 
 int32_t hosts_pad_port(const Hosts* hosts)
