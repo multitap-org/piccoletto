@@ -22,6 +22,7 @@
 #include "app_paths.h"
 #include "app_settings.h"
 #include "app_assets.h"
+#include "app_icon.h"
 #include "app_shell.h"
 #include "app_storage.h"
 #include "ports_overlay.h"
@@ -1320,6 +1321,8 @@ int main(int argc, char** argv)
     config.name          = "piccoletto";
     config.version       = PICCOLETTO_VERSION;
     config.identifier    = "site.multitap.piccoletto";
+    config.icons         = app_icon_images;   // the window's icon (the taskbar, Alt-Tab)
+    config.icon_count    = app_icon_image_count;
     config.window_width  = landscape ? 900 : 420;
     config.window_height = landscape ? 420 : 900;
 

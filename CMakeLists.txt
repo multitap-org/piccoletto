@@ -189,6 +189,17 @@ multitap_write_version_header("${PICCOLETTO_GENERATED}" piccoletto PICCOLETTO_VE
 target_include_directories(piccoletto PRIVATE "${PICCOLETTO_GENERATED}")
 message(STATUS "piccoletto ${PICCOLETTO_VERSION}")
 
+# Windows: the .exe's icon, as a resource (assets/windows/piccoletto.ico, made
+# by hosts-common's tools/make_app_icon.py from the same PNGs as the window
+# icon, src/app_icon.h).
+if(WIN32)
+    enable_language(RC)
+    set(PICCOLETTO_ICO "${CMAKE_CURRENT_SOURCE_DIR}/assets/windows/piccoletto.ico")
+    configure_file(src/piccoletto.rc.in "${PICCOLETTO_GENERATED}/piccoletto.rc" @ONLY)
+    target_sources(piccoletto PRIVATE "${PICCOLETTO_GENERATED}/piccoletto.rc")
+    set_source_files_properties("${PICCOLETTO_GENERATED}/piccoletto.rc" PROPERTIES OBJECT_DEPENDS "${PICCOLETTO_ICO}")
+endif()
+
 multitap_set_project_flags(piccoletto)
 if(EMSCRIPTEN)
     # The browser build (web/build.sh): piccoletto.js + piccoletto.wasm, the
