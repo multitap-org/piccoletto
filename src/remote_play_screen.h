@@ -39,3 +39,8 @@ struct RemoteStream
 NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t port, const PadLink* link,
                                   bool hotkeys, bool show_touch, const RemoteStream* stream, PadLayouts* layouts,
                                   PadEditor* editor);
+
+// Only the picture, as big as its shape allows in the whole screen (the
+// browser, where the page draws the controls: web_shell.h). Nothing while
+// there's no picture.
+void remote_play_screen_draw_picture(const TouchUi* ui, const RemoteStream* stream);

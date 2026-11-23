@@ -52,6 +52,7 @@
 #include "stream_view.h"
 #include "touch_fingers.h"
 #include "touch_ui.h"
+#include "web_shell.h"
 
 
 struct App
@@ -113,6 +114,8 @@ struct App
     bool           testing    = false;   // opened with --screen: the modes stay without a host
     uint64_t       guest_ready_at = 0;   // a guest's REMOTE PLAY: when what it may do was last shown
     uint32_t       guest_shown_what = 0xffffffffu;
+    WebShell       web;               // the browser: the page has the controls (web_shell.h)
+    uint32_t       web_pad_last = 0;  // the HTML pad's bits last frame (its QUICK button opens the menu once)
 };
 
 constexpr int32_t MAX_SHOWN_HOSTS = 32;   // HOME and SETTINGS list at most this many
@@ -568,6 +571,16 @@ static void handle_action(App* app, NavAction action)
 // EDIT LAYOUT or HOME's sidebar, else goes back to HOME, else leaves the app.
 static void go_back(App* app)
 {
+    bool on_pads = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
+    if (app->web.active && on_pads && !app->menu_open && !app->devices_open)
+    {
+        open_menu(app);   // the browser: Esc opens the page's quick menu (leaving is in it)
+        return;
+    }
+    if (app->web.active && app->screen == Screen::home)
+    {
+        return;   // the page stays; nothing to leave to
+    }
     if (app->menu_open)
     {
         close_menu(app);
@@ -731,7 +744,21 @@ static void send_pad(App* app)
         RetroPad gamepad;
         real_gamepad_retropad(&app->gamepad, &gamepad);
         retropad_merge(&pad, &gamepad);
+        if (app->web.active)
+        {
+            RetroPad page;   // the page's touch pad (its RetroPad bits; 16 = the quick menu, not sent)
+            page.buttons = static_cast<uint16_t>(app->web.pad_bits & 0xFFFFu);
+            retropad_merge(&pad, &page);
+        }
     }
+    // The page pad's quick menu button: opens the menu on the press.
+    uint32_t quick = app->web.pad_bits & (WEB_PAD_QUICK_BIT | WEB_PAD_MENU_BIT);
+    if (app->web.active && quick != 0 && (app->web_pad_last & (WEB_PAD_QUICK_BIT | WEB_PAD_MENU_BIT)) == 0 &&
+        (app->screen == Screen::gamepad || app->screen == Screen::remote_play))
+    {
+        open_menu(app);
+    }
+    app->web_pad_last = app->web.pad_bits;
     // Joining at once (Andrés): when the host says our pad isn't on a port,
     // START is tapped for it (START joins on piccolo). Once per connection;
     // leaving (HOME) closes it and the host unplugs the pad.
@@ -790,13 +817,14 @@ static void send_code(const char* code)
 
 // PAIR (Andrés, 2026-11-22): the phone shows its code, the piccolo's user
 // types it. Waiting follows hosts.pair; PAIRED waits for CONTINUE, which goes
-// to HOME with the new host on the card.
-static NavAction draw_pair(App* app)
+// to HOME with the new host on the card. pair_view runs once a frame while
+// PAIR is open (drawn here, or by the page in the browser: web_shell.h);
+// pair_tap does what a tap (or the page) asked.
+static void pair_view(App* app, PairView* view, const char** found, int32_t* found_count)
 {
     Hosts* hosts = &app->hosts;
-    const char* found[HOSTS_MAX_FOUND];
-    int32_t found_count = hosts_unpaired_count(hosts);
-    for (int32_t i = 0; i < found_count; i++)
+    *found_count = hosts_unpaired_count(hosts);
+    for (int32_t i = 0; i < *found_count; i++)
     {
         found[i] = hosts_unpaired(hosts, i)->name;
     }
@@ -817,46 +845,48 @@ static NavAction draw_pair(App* app)
     }
     app->last_pair = hosts->pair;
 
-    PairView view;
-    view.step = app->pair_step;
-    view.found = found;
-    view.found_count = found_count;
-    view.internet = app->pair_internet;
+    *view = PairView{};
+    view->step = app->pair_step;
+    view->found = found;
+    view->found_count = *found_count;
+    view->internet = app->pair_internet;
     if (!hosts->ok)
     {
-        view.error = "NO NETWORK";
+        view->error = "NO NETWORK";
     }
     else if (hosts->pair == PairStatus::failed)
     {
-        view.error = hosts_pair_failure_text(hosts);
+        view->error = hosts_pair_failure_text(hosts);
     }
-    if (view.step == PairStep::waiting)
+    if (view->step == PairStep::waiting)
     {
         char code[NET_PAIR_CODE_DIGITS + 1];
         if (hosts_pair_code(hosts, code))
         {
             std::memcpy(app->pair.code, code, sizeof(code));   // a new one after a wrong try there
         }
-        view.host_asked = hosts_pair_waiting(hosts);
+        view->host_asked = hosts_pair_waiting(hosts);
     }
-    if (view.step == PairStep::paired && app->pair_host >= 0 &&
+    if (view->step == PairStep::paired && app->pair_host >= 0 &&
         app->pair_host < static_cast<int32_t>(hosts->known.size()))
     {
         const KnownHost* host = &hosts->known[static_cast<size_t>(app->pair_host)];
-        view.host_name = host->name.c_str();
-        view.remote_play = net_access_allows(host->access, NetAccessLevel::stream);
-        view.devices = net_access_allows(host->access, NetAccessLevel::full);
+        view->host_name = host->name.c_str();
+        view->remote_play = net_access_allows(host->access, NetAccessLevel::stream);
+        view->devices = net_access_allows(host->access, NetAccessLevel::full);
     }
+}
 
-    PairTap tap = PairTap::none;
-    NavAction action = pair_screen_draw(&app->pair, &app->ui, &view, &tap);
+static NavAction pair_tap(App* app, PairTap tap, int32_t found_count)
+{
+    Hosts* hosts = &app->hosts;
     switch (tap)
     {
     case PairTap::none:
         break;
     case PairTap::pair:
         app->pair_internet = false;
-        if (app->pair.selected >= found_count ||
+        if (app->pair.selected < 0 || app->pair.selected >= found_count ||
             !hosts_pair(hosts, hosts_unpaired(hosts, app->pair.selected)->address, app->pair.code))
         {
             hosts->pair = PairStatus::failed;
@@ -880,10 +910,21 @@ static NavAction draw_pair(App* app)
         break;
     case PairTap::proceed:
         app->home.selected = app->pair_host;
-        action = NavAction::home;
-        break;
+        return NavAction::home;
     }
-    return action;
+    return NavAction::none;
+}
+
+static NavAction draw_pair(App* app)
+{
+    const char* found[HOSTS_MAX_FOUND];
+    int32_t found_count = 0;
+    PairView view;
+    pair_view(app, &view, found, &found_count);
+    PairTap tap = PairTap::none;
+    NavAction action = pair_screen_draw(&app->pair, &app->ui, &view, &tap);
+    NavAction tapped = pair_tap(app, tap, found_count);
+    return tapped != NavAction::none ? tapped : action;
 }
 
 // Who plays on the host's ports: its list (`known` once it came), or for
@@ -953,8 +994,37 @@ static void shader_check_answer(App* app, ShaderCheckChoice choice)
     }
 }
 
+// The connection as the pads' status shows it; in REMOTE PLAY with the
+// stream's last second.
+static PadLink current_link(App* app)
+{
+    PadLink link = hosts_pad_link(&app->hosts);
+    if (app->screen == Screen::remote_play)
+    {
+        link.streaming = app->stream_rates.streaming;
+        link.fps = app->stream_rates.fps;
+        link.kbps = app->stream_rates.kbps;
+        link.lost = app->stream_rates.lost;
+        link.audio_gaps = app->stream_rates.audio_gaps;
+        link.headless = app->hosts.headless_on && app->hosts.headless_yours;
+        NetStreamTuning tuning;
+        if (hosts_stream_tuning_result(&app->hosts, &tuning))
+        {
+            link.delay_ms = tuning.delay_ms;
+        }
+    }
+    return link;
+}
+
+static void draw_web_screen(App* app);
+
 static void draw_screen(App* app)
 {
+    if (app->web.active)
+    {
+        draw_web_screen(app);
+        return;
+    }
     NavAction action = NavAction::none;
     int32_t forget = -1;
     // The pads take fingers only while nothing covers them.
@@ -977,21 +1047,7 @@ static void draw_screen(App* app)
     }
     HomeHost shown[MAX_SHOWN_HOSTS];
     int32_t shown_count = home_hosts(app, shown);
-    PadLink link = hosts_pad_link(&app->hosts);
-    if (app->screen == Screen::remote_play)
-    {
-        link.streaming = app->stream_rates.streaming;
-        link.fps = app->stream_rates.fps;
-        link.kbps = app->stream_rates.kbps;
-        link.lost = app->stream_rates.lost;
-        link.audio_gaps = app->stream_rates.audio_gaps;
-        link.headless = app->hosts.headless_on && app->hosts.headless_yours;
-        NetStreamTuning tuning;
-        if (hosts_stream_tuning_result(&app->hosts, &tuning))
-        {
-            link.delay_ms = tuning.delay_ms;
-        }
-    }
+    PadLink link = current_link(app);
     touch_ui_begin_screen(&app->ui, "##screen");
     switch (app->screen)
     {
@@ -1127,6 +1183,321 @@ static void draw_screen(App* app)
         SDL_Log("%s on %s", nav_action_name(action), selected_host(app));
     }
     handle_action(app, action);
+}
+
+// --- the browser: the page has the controls (web_shell.h) -------------------
+
+// The canvas: REMOTE PLAY's picture, as big as its shape allows; nothing
+// else (the page draws the rest, and hides the canvas outside the modes).
+static void draw_web_screen(App* app)
+{
+    touch_ui_begin_screen(&app->ui, "##screen");
+    if (app->screen == Screen::remote_play)
+    {
+        remote_play_screen_draw_picture(&app->ui, &app->stream);
+    }
+    touch_ui_end_screen();
+}
+
+static const char* screen_name(Screen screen)
+{
+    switch (screen)
+    {
+        case Screen::home:        return "home";
+        case Screen::pair:        return "pair";
+        case Screen::gamepad:     return "gamepad";
+        case Screen::remote_play: return "remote_play";
+        case Screen::settings:    return "settings";
+    }
+    return "home";
+}
+
+static const char* link_name(LinkStatus status)
+{
+    switch (status)
+    {
+        case LinkStatus::idle:       return "idle";
+        case LinkStatus::connecting: return "connecting";
+        case LinkStatus::ready:      return "ready";
+        case LinkStatus::failed:     return "failed";
+    }
+    return "idle";
+}
+
+// What the page asked for since the last frame, through the same functions
+// the app's own screens use.
+static void run_web_commands(App* app)
+{
+    WebShellCommand command;
+    while (web_shell_next(&app->web, &command))
+    {
+        Hosts* hosts = &app->hosts;
+        int32_t known = static_cast<int32_t>(hosts->known.size());
+        bool on_pads = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
+        switch (command.command)
+        {
+        case WebCommand::go:
+            if (command.a >= 0 && command.a <= static_cast<int32_t>(Screen::settings))
+            {
+                go_to(app, static_cast<Screen>(command.a));
+            }
+            break;
+        case WebCommand::select:
+            if (command.a >= 0 && command.a < known && !on_pads)
+            {
+                app->home.selected = command.a;
+            }
+            break;
+        case WebCommand::menu:
+            if (command.a != 0 && on_pads && !app->menu_open)
+            {
+                open_menu(app);
+            }
+            else if (command.a == 0)
+            {
+                close_menu(app);
+            }
+            break;
+        case WebCommand::pair_lan:
+        case WebCommand::pair_internet:
+        case WebCommand::pair_cancel:
+        case WebCommand::pair_continue:
+        {
+            if (app->screen != Screen::pair)
+            {
+                break;
+            }
+            int32_t found_count = hosts_unpaired_count(hosts);
+            PairTap tap = PairTap::cancel;
+            if (command.command == WebCommand::pair_lan)
+            {
+                app->pair.selected = command.a;
+                tap = PairTap::pair;
+            }
+            else if (command.command == WebCommand::pair_internet)
+            {
+                tap = PairTap::internet;
+            }
+            else if (command.command == WebCommand::pair_continue)
+            {
+                tap = PairTap::proceed;
+            }
+            handle_action(app, pair_tap(app, tap, found_count));
+            break;
+        }
+        case WebCommand::forget:
+            if (command.a >= 0 && command.a < known && !on_pads)
+            {
+                SDL_Log("FORGET: %s", hosts->known[static_cast<size_t>(command.a)].name.c_str());
+                hosts_forget(hosts, command.a);
+                app->home.selected = 0;
+            }
+            break;
+        case WebCommand::measure:
+            if (command.a >= 0 && command.a < known)
+            {
+                hosts_measure(hosts, command.a);
+            }
+            break;
+        case WebCommand::set_name:
+        {
+            // As SETTINGS takes it: capitals (piccolo shows names that way).
+            char* name = app->settings.phone_name;
+            SDL_strlcpy(name, command.text, sizeof(app->settings.phone_name));   // cut to the field
+            for (char* c = name; *c != '\0'; c++)
+            {
+                *c = static_cast<char>(SDL_toupper(static_cast<unsigned char>(*c)));
+            }
+            save_settings(app);
+            hosts_set_name(hosts, name);
+            break;
+        }
+        case WebCommand::set_shader:
+            if (command.a >= 0 && command.a < shader_preset_count(app->settings.shader_gl))
+            {
+                app->settings.shader = command.a;
+                save_settings(app);
+            }
+            break;
+        case WebCommand::set_pacing:
+            if (command.a >= 0 && command.a < static_cast<int32_t>(StreamPacing::count))
+            {
+                app->settings.pacing = static_cast<StreamPacing>(command.a);
+                save_settings(app);
+            }
+            break;
+        case WebCommand::set_vibrate:
+            app->settings.vibrate = command.a != 0;
+            save_settings(app);
+            break;
+        case WebCommand::headless:
+            handle_action(app, command.a != 0 ? NavAction::go_headless : NavAction::play_on_host);
+            break;
+        case WebCommand::pause:
+            handle_action(app, NavAction::pause);
+            break;
+        case WebCommand::devices:
+            app->devices_open = command.a != 0 && on_pads && selected_full_access(app);
+            if (app->devices_open)
+            {
+                hosts_request_devices(hosts);
+            }
+            break;
+        case WebCommand::move_device:
+            if (command.a >= 0 && command.a < static_cast<int32_t>(hosts->devices.size()) && command.b >= -1 &&
+                command.b < 8 && selected_full_access(app))
+            {
+                hosts_move_device(hosts, &hosts->devices[static_cast<size_t>(command.a)], static_cast<int8_t>(command.b));
+            }
+            break;
+        case WebCommand::shader_answer:
+            if (app->shader_check.state == ShaderCheckState::asking)
+            {
+                shader_check_answer(app, command.a != 0 ? ShaderCheckChoice::keep : ShaderCheckChoice::revert);
+            }
+            break;
+        case WebCommand::open_link:
+            open_link(app, command.text);
+            break;
+        }
+    }
+}
+
+// The app's state for the page, once a frame (a fixed buffer: nothing allocates).
+static void publish_web_state(App* app)
+{
+    WebShell* web = &app->web;
+    Hosts* hosts = &app->hosts;
+    web_shell_begin(web);
+    web_shell_string(web, "version", PICCOLETTO_VERSION);
+    web_shell_string(web, "screen", screen_name(app->screen));
+    web_shell_bool(web, "menu", app->menu_open);
+    web_shell_bool(web, "devices_open", app->devices_open);
+    web_shell_bool(web, "network", hosts->ok);
+    web_shell_bool(web, "lan", hosts->lan);
+    web_shell_int(web, "selected", guest_mode(app) ? -1 : app->home.selected);
+
+    web_shell_open(web, "hosts", '[');
+    for (size_t i = 0; i < hosts->known.size(); i++)
+    {
+        const KnownHost* host = &hosts->known[i];
+        web_shell_open(web, nullptr, '{');
+        web_shell_string(web, "name", host->name.c_str());
+        web_shell_bool(web, "online", host->online);
+        web_shell_bool(web, "internet", host->internet);
+        web_shell_string(web, "access", net_access_level_name(host->access));
+        web_shell_bool(web, "remote_play", net_access_allows(host->access, NetAccessLevel::stream));
+        web_shell_bool(web, "full", net_access_allows(host->access, NetAccessLevel::full));
+        web_shell_int(web, "down_kbps", host->down_kbps);
+        web_shell_int(web, "up_kbps", host->up_kbps);
+        web_shell_bool(web, "measuring", hosts_measuring(hosts, static_cast<int32_t>(i)));
+        web_shell_close(web, '}');
+    }
+    web_shell_close(web, ']');
+
+    // PAIR's logic runs here while it's open (its screen isn't drawn).
+    web_shell_open(web, "pair", '{');
+    if (app->screen == Screen::pair)
+    {
+        const char* found[HOSTS_MAX_FOUND];
+        int32_t found_count = 0;
+        PairView view;
+        pair_view(app, &view, found, &found_count);
+        web_shell_string(web, "step", view.step == PairStep::waiting ? "waiting" : (view.step == PairStep::paired ? "paired" : "pick"));
+        web_shell_string(web, "code", app->pair.code);
+        web_shell_bool(web, "internet", view.internet);
+        web_shell_bool(web, "asked", view.host_asked);
+        web_shell_string(web, "error", view.error);
+        web_shell_string(web, "host", view.host_name);
+        web_shell_bool(web, "remote_play", view.remote_play);
+        web_shell_bool(web, "full", view.devices);
+        web_shell_open(web, "found", '[');
+        for (int32_t i = 0; i < found_count; i++)
+        {
+            web_shell_string(web, nullptr, found[i]);
+        }
+        web_shell_close(web, ']');
+    }
+    web_shell_close(web, '}');
+
+    PadLink link = current_link(app);
+    web_shell_open(web, "link", '{');
+    web_shell_string(web, "state", link_name(hosts->link));
+    web_shell_string(web, "host", selected_host(app));
+    web_shell_string(web, "refusal", hosts->link == LinkStatus::failed ? hosts_refusal_text(hosts->refusal) : "");
+    web_shell_int(web, "ping_ms", link.ping_ms);
+    web_shell_number(web, "loss", static_cast<double>(link.loss));
+    web_shell_int(web, "port", hosts_pad_port(hosts));
+    web_shell_bool(web, "streaming", link.streaming);
+    web_shell_int(web, "fps", link.fps);
+    web_shell_int(web, "kbps", link.kbps);
+    web_shell_int(web, "lost", link.lost);
+    web_shell_int(web, "audio_gaps", link.audio_gaps);
+    web_shell_int(web, "delay_ms", link.delay_ms);
+    web_shell_bool(web, "picture", app->stream_view.has_picture);
+    web_shell_string(web, "status", app->stream.status);
+    web_shell_number(web, "aspect", static_cast<double>(app->stream.aspect));
+    web_shell_int(web, "game_running", hosts_game_running(hosts));
+    web_shell_bool(web, "remote_play", selected_allows(app, NetAccessLevel::stream));
+    web_shell_bool(web, "full", selected_full_access(app));
+    web_shell_bool(web, "headless_on", hosts->headless_on);
+    web_shell_bool(web, "headless_yours", hosts->headless_yours);
+    uint32_t causes = 0;
+    web_shell_bool(web, "pause_offered", hosts_pause(hosts, &causes));
+    web_shell_bool(web, "paused", (causes & NET_PAUSE_USER) != 0);
+    web_shell_close(web, '}');
+
+    web_shell_open(web, "guest", '{');
+    web_shell_bool(web, "on", guest_mode(app));
+    web_shell_bool(web, "play", hosts->guest_level == NetGuestLevel::play);
+    web_shell_int(web, "port", hosts->guest_port == NET_GUEST_NO_PORT ? -1 : static_cast<int32_t>(hosts->guest_port));
+    web_shell_bool(web, "full", hosts->refusal == NetClientRefusal::guest_full);
+    web_shell_close(web, '}');
+
+    web_shell_open(web, "devices", '{');
+    web_shell_bool(web, "known", hosts->devices_known);
+    web_shell_open(web, "list", '[');
+    for (size_t i = 0; i < hosts->devices.size(); i++)
+    {
+        const NetDevice* device = &hosts->devices[i];
+        static const char* const KINDS[] = {"gamepad", "keyboard", "mouse", "network"};
+        static const char* const OWNERS[] = {"host", "other", "yours"};
+        web_shell_open(web, nullptr, '{');
+        web_shell_string(web, "name", device->name.c_str());
+        web_shell_string(web, "kind", static_cast<uint8_t>(device->kind) < 4 ? KINDS[static_cast<uint8_t>(device->kind)] : "gamepad");
+        web_shell_string(web, "owner", static_cast<uint8_t>(device->owner) < 3 ? OWNERS[static_cast<uint8_t>(device->owner)] : "host");
+        web_shell_int(web, "ports", device->ports);
+        web_shell_close(web, '}');
+    }
+    web_shell_close(web, ']');
+    web_shell_close(web, '}');
+
+    const AppSettings* settings = &app->settings;
+    web_shell_open(web, "settings", '{');
+    web_shell_string(web, "name", settings->phone_name);
+    web_shell_bool(web, "vibrate", settings->vibrate);
+    web_shell_int(web, "pacing", static_cast<int32_t>(settings->pacing));
+    web_shell_int(web, "shader", settings->shader);
+    web_shell_open(web, "shaders", '[');
+    for (int32_t i = 0; i < shader_preset_count(settings->shader_gl); i++)
+    {
+        web_shell_string(web, nullptr, shader_preset(settings->shader_gl, i)->label);
+    }
+    web_shell_close(web, ']');
+    web_shell_close(web, '}');
+
+    bool asking = app->shader_check.state == ShaderCheckState::asking;
+    web_shell_open(web, "shader_check", '{');
+    web_shell_bool(web, "asking", asking);
+    web_shell_string(web, "name", asking ? shader_preset(settings->shader_gl, settings->shader)->label : "");
+    web_shell_number(web, "fps", asking && app->shader_check.measured_ns > 0.0 ? 1e9 / app->shader_check.measured_ns : 0.0);
+    web_shell_number(web, "target", display_hz(app));
+    web_shell_close(web, '}');
+    web_shell_end(web);
+    if (web->overflow)
+    {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "web shell: the state didn't fit (%zu bytes)", sizeof(web->state));
+    }
 }
 
 // Desktop testing: --screen <name> opens on that screen, --landscape starts
@@ -1309,6 +1680,10 @@ static bool app_frame(void* data)
     double now = static_cast<double>(SDL_GetTicks()) / 1000.0;
     update_gamepad_ui(app, SDL_GetTicks());
     hosts_update(&app->hosts, now);
+    if (app->web.active)
+    {
+        run_web_commands(app);
+    }
     // The modes need the host (Andrés): when the connection drops, or
     // can't be made, back to HOME.
     bool in_mode = app->screen == Screen::gamepad || app->screen == Screen::remote_play;
@@ -1337,8 +1712,12 @@ static bool app_frame(void* data)
         haptics_buzz(&app->haptics);
     }
     touch_fingers_end_frame(&app->fingers);
+    if (app->web.active)
+    {
+        publish_web_state(app);
+    }
 
-    uint32_t background = app->ui.palette.background;
+    uint32_t background = app->web.active ? 0xFF000000u : app->ui.palette.background;
     ImVec4 background_color = retro_ui_color_vec4(background);
     ClearColor clear = {background_color.x, background_color.y, background_color.z, 1.0f};
     if (!app_shell_present(&app->shell, clear))
@@ -1367,6 +1746,15 @@ int main(int argc, char** argv)
     app_storage_init("piccoletto");   // the browser: piccoletto's folder on OPFS
 
     App* app = new App{};
+    web_shell_attach(&app->web);
+#if defined(SDL_PLATFORM_EMSCRIPTEN)
+    // The browser: the page has the controls (web_shell.h), unless it was
+    // opened with ?ui=app (piccoletto's own screens in the canvas, as before).
+    {
+        const char* search = emscripten_run_script_string("location.search");
+        app->web.active = search == nullptr || std::strstr(search, "ui=app") == nullptr;
+    }
+#endif
     pad_layouts_init(&app->layouts);
 
     Screen first = Screen::home;

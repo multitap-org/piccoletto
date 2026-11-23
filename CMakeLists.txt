@@ -167,6 +167,7 @@ set(PICCOLETTO_SOURCES
     src/title_bar.cpp
     src/real_gamepad.cpp
     src/hosts.cpp
+    src/web_shell.cpp
 )
 if(ANDROID)
     # Android (hosts-common's cmake/android-toolchain.cmake, android/build-apk.sh):

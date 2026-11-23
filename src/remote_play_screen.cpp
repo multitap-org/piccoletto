@@ -117,3 +117,17 @@ NavAction remote_play_screen_draw(const TouchUi* ui, const char* host, int32_t p
     NavAction pad = draw_pad(ui, &placement.frame, layout, editor, hotkeys, show_touch);
     return pad != NavAction::none ? pad : icons;
 }
+
+void remote_play_screen_draw_picture(const TouchUi* ui, const RemoteStream* stream)
+{
+    if (stream->view == nullptr || stream->shell == nullptr)
+    {
+        return;
+    }
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    fit_picture(stream->aspect, 0.0f, 0.0f, touch_ui_width(ui), touch_ui_height(ui), &x, &y, &width, &height);
+    stream_view_draw(stream->view, ui, stream->shell, x, y, width, height);
+}
