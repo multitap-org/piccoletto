@@ -388,16 +388,56 @@ static void draw_guest_card(App* app)
         title = !play ? "WATCHING" : (port ? "PLAYING" : "WATCHING");
         line = !play ? "THE HOST GAVE THIS LINK WATCH ONLY" : (port ? "YOUR PAD PLAYS. ENJOY!" : "NO FREE PORT: PRESS START WHEN ONE FREES UP");
     }
+    // The card is as wide as its text, up to the screen; a line too long for
+    // that is broken in two at a space.
     float width = touch_ui_width(&app->ui);
     float height = touch_ui_height(&app->ui);
-    float card_width = width - 32.0f < 220.0f ? width - 32.0f : 220.0f;
-    float card_height = failed ? 74.0f : 46.0f;
+    float widest = width - 32.0f;
+    char first[160];
+    std::snprintf(first, sizeof(first), "%s", line);
+    const char* second = "";
+    if (touch_ui_text_width(&app->ui, first, TouchText::normal) > widest - 16.0f)
+    {
+        // The last space whose first half fits.
+        size_t length = std::strlen(line);
+        for (size_t cut = length; cut > 0; cut--)
+        {
+            if (line[cut] != ' ')
+            {
+                continue;
+            }
+            std::snprintf(first, sizeof(first), "%.*s", static_cast<int>(cut), line);
+            if (touch_ui_text_width(&app->ui, first, TouchText::normal) <= widest - 16.0f)
+            {
+                second = line + cut + 1;
+                break;
+            }
+        }
+        if (second[0] == '\0')
+        {
+            std::snprintf(first, sizeof(first), "%s", line);   // no space that helps: as it is
+        }
+    }
+    float text_width = touch_ui_text_width(&app->ui, title, TouchText::big);
+    float first_width = touch_ui_text_width(&app->ui, first, TouchText::normal);
+    float second_width = touch_ui_text_width(&app->ui, second, TouchText::normal);
+    text_width = first_width > text_width ? first_width : text_width;
+    text_width = second_width > text_width ? second_width : text_width;
+    float card_width = text_width + 16.0f < 220.0f ? 220.0f : text_width + 16.0f;
+    card_width = card_width > widest ? widest : card_width;
+    float line_height = touch_ui_text_height(&app->ui, TouchText::normal) + 3.0f;
+    float lines_height = second[0] != '\0' ? 2.0f * line_height : line_height;
+    float card_height = 28.0f + lines_height + (failed ? 32.0f : 6.0f);
     float x = (width - card_width) / 2.0f;
     float y = (height - card_height) / 2.0f;
     touch_ui_rect(&app->ui, x, y, card_width, card_height, app->ui.palette.panel_face);
     touch_ui_text(&app->ui, x + 8.0f, y + 8.0f, title, app->ui.palette.text_highlight, TouchText::big);
     uint32_t dim = (app->ui.palette.text & 0x00FFFFFFu) | 0xB0000000u;
-    touch_ui_text(&app->ui, x + 8.0f, y + 28.0f, line, dim, TouchText::normal);
+    touch_ui_text(&app->ui, x + 8.0f, y + 28.0f, first, dim, TouchText::normal);
+    if (second[0] != '\0')
+    {
+        touch_ui_text(&app->ui, x + 8.0f, y + 28.0f + line_height, second, dim, TouchText::normal);
+    }
     if (failed && touch_ui_button(&app->ui, "##guest_ok", x + card_width - 68.0f, y + card_height - 26.0f, 60.0f, 20.0f,
                                   "OK", TouchButton::primary, TouchText::normal))
     {
