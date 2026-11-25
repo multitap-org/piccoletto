@@ -360,8 +360,9 @@ static void draw_guest_card(App* app)
     bool failed = app->hosts.link == LinkStatus::failed;
     if (failed)
     {
-        title = app->hosts.refusal == NetClientRefusal::guest_full ? "SESSION FULL" : "COULDN'T JOIN";
-        line = hosts_refusal_text(app->hosts.refusal);
+        title = app->hosts.guest_ended ? "STREAM ENDED"
+                : app->hosts.refusal == NetClientRefusal::guest_full ? "SESSION FULL" : "COULDN'T JOIN";
+        line = hosts_failure_text(&app->hosts);
     }
     else if (app->hosts.link != LinkStatus::ready)
     {
@@ -1464,7 +1465,7 @@ static void publish_web_state(App* app)
     web_shell_open(web, "link", '{');
     web_shell_string(web, "state", link_name(hosts->link));
     web_shell_string(web, "host", selected_host(app));
-    web_shell_string(web, "refusal", hosts->link == LinkStatus::failed ? hosts_refusal_text(hosts->refusal) : "");
+    web_shell_string(web, "refusal", hosts->link == LinkStatus::failed ? hosts_failure_text(hosts) : "");
     web_shell_int(web, "ping_ms", link.ping_ms);
     web_shell_number(web, "loss", static_cast<double>(link.loss));
     web_shell_int(web, "port", hosts_pad_port(hosts));

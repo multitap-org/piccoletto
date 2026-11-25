@@ -197,6 +197,10 @@ struct Hosts
     bool                   devices_known = false;
     std::vector<NetDevice> devices;
     NetClientRefusal       refusal = NetClientRefusal::none;
+    // A guest whose host ended the session after it had joined (a game or
+    // core change, the game stopping, STOP REMOTE PLAY): not a failure to
+    // join, so the guest card says the host ended the stream.
+    bool                   guest_ended = false;
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
     // Guest links.
     bool                   has_guest = false;   // a guest link is set (hosts_set_guest)
@@ -327,6 +331,10 @@ bool hosts_parse_address(const char* text, NetAddress* address);
 
 // "WRONG CODE" etc., for the screens.
 const char* hosts_refusal_text(NetClientRefusal refusal);
+
+// What the guest card and the web shell say when the link failed: the host
+// ending the stream, or why it refused.
+const char* hosts_failure_text(const Hosts* hosts);
 // What PAIR says when pairing failed (hosts_refusal_text, or that the host
 // still lists this phone and has to remove it first).
 const char* hosts_pair_failure_text(const Hosts* hosts);
