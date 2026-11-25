@@ -32,7 +32,7 @@ struct RemoteStream
     const char* status = nullptr;       // instead of the picture: why there's none ("NO GAME RUNNING"...)
 };
 
-// `hotkeys`: the host lets this phone use them (STREAM access or above: the HOTKEY button).
+// `hotkeys`: the host lets this phone use them (REMOTE PLAY granted: the HOTKEY button).
 // `show_touch` false: the touch controls aren't drawn (a real gamepad is
 // connected); EDIT LAYOUT still shows them.
 // `link`: the connection to the host (ping, loss), for the status line.

@@ -32,6 +32,7 @@
 #include "home_screen.h"
 #include "hosts.h"
 #include "host_fs.h"
+#include "net_build.h"
 #include "quick_menu.h"
 #include "pad_editor.h"
 #include "pad_layouts.h"
@@ -63,7 +64,7 @@ struct App
     bool           menu_open = false;   // the quick menu over GAMEPAD / REMOTE PLAY
     QuickMenu      quick_menu = {};
     InputHold      start_hold = {};   // the pads: holding START opens the quick menu
-    bool           devices_open = false; // DEVICES over GAMEPAD / REMOTE PLAY (FULL access)
+    bool           devices_open = false; // DEVICES over GAMEPAD / REMOTE PLAY (SETTINGS granted)
     HomeScreen     home       = {};
     PairScreen     pair       = {};
     PortsOverlay   ports      = {};   // the ports' tabs over the pads, and DEVICES
@@ -100,11 +101,15 @@ struct App
     bool           touch_with_gamepad = false;   // REMOTE PLAY: touch controls shown although a gamepad is connected
     InputHold      back_hold = {};              // the pads: holding BACK goes to HOME
     Hosts          hosts;             // the paired hosts, discovery, pairing, the connection
-    PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (a failure makes a new code)
-    PairStep       pair_step  = PairStep::pick;     // PAIR's step (waiting follows hosts.pair)
-    bool           pair_internet = false;           // PAIR is waiting across the internet
-    int32_t        pair_host  = -1;                 // PAIRED: the new host (index in hosts.known)
-    std::string    pair_beacon;                     // INTERNET goes through it ("" = the default; a link's)
+    PairStatus     last_pair  = PairStatus::idle;   // hosts.pair last frame (a failure goes back to the list)
+    PairStep       pair_step  = PairStep::list;     // PAIR A DEVICE's step
+    bool           pair_internet = false;           // typing: ENTER A CODE (else a device on this network)
+    bool           pair_entered = false;            // typing: the code went out (checking it)
+    std::string    pair_name;                       // typing: the device picked ("" = THE OTHER DEVICE)
+    int32_t        pair_host  = -1;                 // done: the new host (index in hosts.known)
+    std::string    pair_beacon;                     // ENTER A CODE and GENERATE PAIRING CODE go through it
+                                                    // ("" = the default; a link's)
+    std::string    pair_granted;                    // done: what it lets this phone use, as shown
     std::string    settings_dir;      // settings/ ("" = nothing is saved)
     std::string    settings_path;     // settings/piccoletto.cfg ("" = nothing is saved)
     std::string    layouts_path;      // settings/layouts.cfg
@@ -112,6 +117,7 @@ struct App
     SettingsFile   layouts_file;
     bool           running    = false;
     bool           testing    = false;   // opened with --screen: the modes stay without a host
+    int32_t        pair_example = 0;     // --screen pair-typing / pair-code / pair-paired: 1 / 2 / 3
     uint64_t       guest_ready_at = 0;   // a guest's REMOTE PLAY: when what it may do was last shown
     uint32_t       guest_shown_what = 0xffffffffu;
     WebShell       web;               // the browser: the page has the controls (web_shell.h)
@@ -138,20 +144,20 @@ static const char* selected_host(const App* app)
     return host != nullptr ? host->name.c_str() : "";
 }
 
-// What the selected host lets this phone do: STREAM and up remote play and
-// the HOTKEY button; FULL and up DEVICES.
-static bool selected_allows(const App* app, NetAccessLevel level)
+// What the selected host lets this phone use: REMOTE PLAY opens remote play
+// and the HOTKEY button; SETTINGS opens DEVICES.
+static bool selected_allows(const App* app, NetCaps cap)
 {
     const KnownHost* host = selected_known(app);
-    return host != nullptr && net_access_allows(host->access, level);
+    return host != nullptr && (host->granted & cap) != 0;
 }
 
 static bool selected_full_access(const App* app)
 {
-    return selected_allows(app, NetAccessLevel::full);
+    return selected_allows(app, NET_CAP_SETTINGS);
 }
 
-// HOME's view of the paired hosts: the modes each access level opens.
+// HOME's view of the paired hosts: the modes what each grants opens.
 static int32_t home_hosts(const App* app, HomeHost* out)
 {
     int32_t count = 0;
@@ -165,8 +171,8 @@ static int32_t home_hosts(const App* app, HomeHost* out)
         // Not on the LAN now: met across the internet through its beacon
         // (every paired host has one: the default beacon for LAN pairings).
         shown->internet = !host->online;
-        shown->access.gamepad = true;
-        shown->access.remote_play = net_access_allows(host->access, NetAccessLevel::stream);
+        shown->access.gamepad = (host->granted & NET_CAP_GAMEPAD) != 0;
+        shown->access.remote_play = (host->granted & NET_CAP_STREAM) != 0;
         shown->down_kbps = host->down_kbps;
         shown->up_kbps = host->up_kbps;
         shown->can_measure = host->online || shown->internet;
@@ -475,6 +481,7 @@ static void go_to(App* app, Screen screen)
     if (app->screen == Screen::pair && screen != Screen::pair)
     {
         hosts_cancel(&app->hosts);   // leaving PAIR stops a pairing that's still running
+        hosts_end_code(&app->hosts); // and takes a shown code down
     }
     // The modes talk to the selected host: connected while one is open.
     bool mode = screen == Screen::gamepad || screen == Screen::remote_play;
@@ -511,8 +518,11 @@ static void go_to(App* app, Screen screen)
     if (screen == Screen::pair)
     {
         pair_screen_reset(&app->pair);
-        app->pair_step = PairStep::pick;
+        app->pair.mode = PairMode::device;
+        app->pair_step = PairStep::list;
         app->pair_internet = false;
+        app->pair_entered = false;
+        app->pair_name.clear();
         app->pair_host = -1;
         app->hosts.pair = PairStatus::idle;   // an old failure isn't this visit's
     }
@@ -565,7 +575,7 @@ static void handle_action(App* app, NavAction action)
             go_to(app, Screen::remote_play);
             break;
         case NavAction::devices:
-            // From the sheet: open it (FULL access only); from DEVICES: close it.
+            // From the sheet: open it (SETTINGS granted only); from DEVICES: close it.
             close_menu(app);
             app->devices_open = !app->devices_open && selected_full_access(app);
             app->ports.view.has_pick = false;   // DEVICES opens with nothing picked
@@ -828,8 +838,9 @@ static void send_pad(App* app)
 static void send_code(const char* code)
 {
     char text[160];
-    std::snprintf(text, sizeof(text), "PICCOLETTO CODE: %.3s %.3s %.3s. TYPE IT ON THE PICCOLO IN TOOLS > INVITE.", code,
-                  code + 3, code + 6);
+    std::snprintf(text, sizeof(text),
+                  "PICCOLETTO PAIRING CODE: %.3s %.3s %.3s. TYPE IT ON THE PICCOLO IN PAIR... > PAIR A DEVICE > ENTER A CODE.",
+                  code, code + 3, code + 6);
 #if defined(SDL_PLATFORM_ANDROID)
     JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
     jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
@@ -856,41 +867,151 @@ static void send_code(const char* code)
 #endif
 }
 
-// PAIR (Andrés, 2026-11-22): the phone shows its code, the piccolo's user
-// types it. Waiting follows hosts.pair; PAIRED waits for CONTINUE, which goes
-// to HOME with the new host on the card. pair_view runs once a frame while
-// PAIR is open (drawn here, or by the page in the browser: web_shell.h);
-// pair_tap does what a tap (or the page) asked.
-static void pair_view(App* app, PairView* view, const char** found, int32_t* found_count)
+// PICCOLO / PICCOLETTO / PICCOLINO: a device's kind, as the screens show it.
+static const char* kind_label(NetAppKind kind)
+{
+    switch (kind)
+    {
+    case NetAppKind::piccolo:
+        return "PICCOLO";
+    case NetAppKind::piccoletto:
+        return "PICCOLETTO";
+    case NetAppKind::piccolino:
+        return "PICCOLINO";
+    }
+    return "PICCOLO";
+}
+
+// "GAMEPAD, REMOTE PLAY" (the labels on the pairing page), or "-".
+static void caps_label(NetCaps caps, std::string* out)
+{
+    static const char* const NAMES[NET_CAP_COUNT] = {"GAMEPAD", "REMOTE PLAY", "SETTINGS", "FILE TRANSFER"};
+    out->clear();
+    for (uint32_t i = 0; i < NET_CAP_COUNT; i++)
+    {
+        if ((caps & (1u << i)) != 0)
+        {
+            *out += out->empty() ? "" : ", ";
+            *out += NAMES[i];
+        }
+    }
+    if (out->empty())
+    {
+        *out = "-";
+    }
+}
+
+// The build's platform for its signed record (net_build.h): os-arch.
+static const char* build_target()
+{
+#if defined(SDL_PLATFORM_ANDROID)
+    const char* os = "android";
+#elif defined(SDL_PLATFORM_WINDOWS)
+    const char* os = "windows";
+#elif defined(SDL_PLATFORM_EMSCRIPTEN)
+    const char* os = "web";
+#else
+    const char* os = "linux";
+#endif
+#if defined(__aarch64__) || defined(_M_ARM64)
+    static char target[32];
+    std::snprintf(target, sizeof(target), "%s-arm64", os);
+#elif defined(__arm__)
+    static char target[32];
+    std::snprintf(target, sizeof(target), "%s-armv7", os);
+#elif defined(__x86_64__) || defined(_M_X64)
+    static char target[32];
+    std::snprintf(target, sizeof(target), "%s-x86_64", os);
+#else
+    static char target[32];
+    std::snprintf(target, sizeof(target), "%s-wasm32", os);
+#endif
+    return target;
+}
+
+// This phone as its hello tells it (net_pairing.h): its name, piccoletto,
+// offering nothing and using GAMEPAD, REMOTE PLAY and SETTINGS, and its
+// build proof when this is a signed release (net_build.h; only tags are
+// signed). A proof not kept yet is fetched on a thread of its own and used
+// from the next launch.
+static void device_info(const App* app, NetDeviceInfo* info)
+{
+    *info = NetDeviceInfo{};
+    std::snprintf(info->name, sizeof(info->name), "%s", app->settings.phone_name);
+    info->kind = NetAppKind::piccoletto;
+    info->offers = 0;
+    info->uses = NET_CAP_GAMEPAD | NET_CAP_STREAM | NET_CAP_SETTINGS;
+    NetBuildIdentity build;
+    build.app = "piccoletto";
+    build.version = PICCOLETTO_VERSION;
+    build.target = build_target();
+    const char* base = SDL_GetBasePath();
+#if defined(SDL_PLATFORM_WINDOWS)
+    build.exe_path = std::string(base != nullptr ? base : "") + "piccoletto.exe";
+#else
+    build.exe_path = std::string(base != nullptr ? base : "") + "piccoletto";
+#endif
+    if (!net_build_proof_load(&build, app->settings_dir.c_str(), false, info))
+    {
+        net_build_proof_fetch_later(&build, app->settings_dir.c_str());
+    }
+    SDL_Log("Network: this build is %s", info->record_size > 0 ? "signed" : "unsigned");
+}
+
+// PAIR (Andrés, 2026-11-25; pair_screen.h): PAIR A DEVICE follows hosts.pair,
+// GENERATE PAIRING CODE hosts.code. pair_view runs once a frame while PAIR is
+// open (drawn here, or by the page in the browser: web_shell.h); pair_tap
+// does what a tap (or the page) asked.
+struct PairLists
+{
+    const char* names[HOSTS_MAX_FOUND] = {};
+    const char* kinds[HOSTS_MAX_FOUND] = {};
+    int32_t     count = 0;
+};
+
+static void pair_view(App* app, PairView* view, PairLists* lists)
 {
     Hosts* hosts = &app->hosts;
-    *found_count = hosts_unpaired_count(hosts);
-    for (int32_t i = 0; i < *found_count; i++)
+    lists->count = hosts_unpaired_count(hosts);
+    for (int32_t i = 0; i < lists->count; i++)
     {
-        found[i] = hosts_unpaired(hosts, i)->name;
+        const FoundHost* found = hosts_unpaired(hosts, i);
+        lists->names[i] = found->name;
+        lists->kinds[i] = kind_label(found->kind);
     }
+    // PAIR A DEVICE's step.
     if (hosts->pair == PairStatus::paired)
     {
-        app->pair_step = PairStep::paired;
+        app->pair_step = PairStep::done;
         app->pair_host = hosts->paired_index;
         hosts->pair = PairStatus::idle;
     }
-    else if (app->pair_step != PairStep::paired)
-    {
-        app->pair_step = hosts->pair == PairStatus::busy ? PairStep::waiting : PairStep::pick;
-    }
-    // A failure: a new code for the next try (the old one is spent).
     if (hosts->pair == PairStatus::failed && app->last_pair != PairStatus::failed)
     {
+        // Back to the list, saying why (a new try starts over).
+        app->pair_step = PairStep::list;
+        app->pair_entered = false;
         pair_screen_reset(&app->pair);
     }
     app->last_pair = hosts->pair;
+    // A wrong code: the device shows a new one, typed again.
+    if (hosts->pair_code_needed && app->pair_entered)
+    {
+        app->pair_entered = false;
+        std::memset(app->pair.typed, 0, sizeof(app->pair.typed));
+    }
+    if (hosts->pair_code_needed && hosts->pair_host.name[0] != '\0')
+    {
+        app->pair_name = hosts->pair_host.name;   // ENTER A CODE: now we know who
+    }
 
     *view = PairView{};
     view->step = app->pair_step;
-    view->found = found;
-    view->found_count = *found_count;
-    view->internet = app->pair_internet;
+    view->found = lists->names;
+    view->found_kinds = lists->kinds;
+    view->found_count = lists->count;
+    view->busy_device = app->pair_step == PairStep::typing;
+    view->busy_code = hosts->code == CodeStatus::showing || hosts->code == CodeStatus::chosen;
     if (!hosts->ok)
     {
         view->error = "NO NETWORK";
@@ -899,23 +1020,59 @@ static void pair_view(App* app, PairView* view, const char** found, int32_t* fou
     {
         view->error = hosts_pair_failure_text(hosts);
     }
-    if (view->step == PairStep::waiting)
-    {
-        char code[NET_PAIR_CODE_DIGITS + 1];
-        if (hosts_pair_code(hosts, code))
-        {
-            std::memcpy(app->pair.code, code, sizeof(code));   // a new one after a wrong try there
-        }
-        view->host_asked = hosts_pair_waiting(hosts);
-    }
-    if (view->step == PairStep::paired && app->pair_host >= 0 &&
+    view->host_name = app->pair_name.c_str();
+    // On this network the device pops its code up first; ENTER A CODE types
+    // first (and again after a wrong one).
+    view->code_ready = hosts->pair_code_needed || (app->pair_internet && hosts->pair != PairStatus::busy);
+    view->checking = app->pair_entered && hosts->pair == PairStatus::busy && !hosts->pair_code_needed;
+    view->wrong = hosts->pair_code_needed && hosts->pair_retry;
+    if (app->pair_step == PairStep::done && app->pair_host >= 0 &&
         app->pair_host < static_cast<int32_t>(hosts->known.size()))
     {
         const KnownHost* host = &hosts->known[static_cast<size_t>(app->pair_host)];
-        view->host_name = host->name.c_str();
-        view->remote_play = net_access_allows(host->access, NetAccessLevel::stream);
-        view->devices = net_access_allows(host->access, NetAccessLevel::full);
+        caps_label(host->granted, &app->pair_granted);
+        view->done_name = host->name.c_str();
+        view->done_kind = kind_label(host->kind);
+        view->done_granted = app->pair_granted.c_str();
     }
+    // GENERATE PAIRING CODE.
+    switch (hosts->code)
+    {
+    case CodeStatus::idle:
+        view->code_step = PairCodeStep::starting;
+        break;
+    case CodeStatus::failed:
+        view->code_step = PairCodeStep::starting;
+        view->error = hosts->code_error;
+        break;
+    case CodeStatus::showing:
+        view->code_step = PairCodeStep::showing;
+        view->shown_code = hosts->code_digits;
+        break;
+    case CodeStatus::chosen:
+    case CodeStatus::paired:
+        view->code_step = hosts->code == CodeStatus::chosen ? PairCodeStep::chosen : PairCodeStep::done;
+        caps_label(hosts->code_granted, &app->pair_granted);
+        view->done_name = hosts->code_host.c_str();
+        view->done_kind = kind_label(hosts->code_kind);
+        view->done_granted = app->pair_granted.c_str();
+        break;
+    }
+    if (app->pair.mode == PairMode::code && hosts->code != CodeStatus::failed && hosts->ok)
+    {
+        view->error = "";
+    }
+}
+
+// PAIR A DEVICE back to its list.
+static void pair_device_reset(App* app)
+{
+    hosts_cancel(&app->hosts);
+    pair_screen_reset(&app->pair);
+    app->pair_step = PairStep::list;
+    app->pair_internet = false;
+    app->pair_entered = false;
+    app->pair_name.clear();
 }
 
 static NavAction pair_tap(App* app, PairTap tap, int32_t found_count)
@@ -925,46 +1082,146 @@ static NavAction pair_tap(App* app, PairTap tap, int32_t found_count)
     {
     case PairTap::none:
         break;
-    case PairTap::pair:
-        app->pair_internet = false;
-        if (app->pair.selected < 0 || app->pair.selected >= found_count ||
-            !hosts_pair(hosts, hosts_unpaired(hosts, app->pair.selected)->address, app->pair.code))
+    case PairTap::mode:
+        // GENERATE PAIRING CODE shows a code as soon as it's picked.
+        if (app->pair.mode == PairMode::code)
         {
-            hosts->pair = PairStatus::failed;
-            hosts->refusal = NetClientRefusal::connection;
+            pair_device_reset(app);
+            hosts_show_code(hosts, app->pair_beacon.c_str());
+        }
+        else
+        {
+            hosts_end_code(hosts);
         }
         break;
-    case PairTap::internet:
-        app->pair_internet = true;
-        if (!hosts_pair_internet(hosts, app->pair.code, app->pair_beacon.c_str()))
+    case PairTap::pair:
+        hosts->pair = PairStatus::idle;
+        std::memset(app->pair.typed, 0, sizeof(app->pair.typed));
+        app->pair_entered = false;
+        if (app->pair.selected >= 0 && app->pair.selected < found_count)
         {
-            hosts->pair = PairStatus::failed;
-            hosts->refusal = NetClientRefusal::beacon_unreachable;
+            // On this network: it pops its code up for us to type.
+            const FoundHost* found = hosts_unpaired(hosts, app->pair.selected);
+            app->pair_internet = false;
+            app->pair_name = found->name;
+            if (!hosts_pair(hosts, found->address))
+            {
+                hosts->pair = PairStatus::failed;
+                hosts->refusal = NetClientRefusal::connection;
+                break;
+            }
+            app->pair_step = PairStep::typing;
+        }
+        else if (app->pair.selected == found_count)
+        {
+            // ENTER A CODE: the code first, then the beacon.
+            app->pair_internet = true;
+            app->pair_name.clear();
+            app->pair_step = PairStep::typing;
+        }
+        break;
+    case PairTap::submit:
+        if (!net_pair_code_valid(app->pair.typed))
+        {
+            break;
+        }
+        if (hosts->pair_code_needed)
+        {
+            app->pair_entered = hosts_pair_enter(hosts, app->pair.typed);
+        }
+        else if (app->pair_internet && hosts->pair != PairStatus::busy)
+        {
+            app->pair_entered = hosts_pair_internet(hosts, app->pair.typed, app->pair_beacon.c_str());
+            if (!app->pair_entered)
+            {
+                hosts->pair = PairStatus::failed;
+                hosts->refusal = NetClientRefusal::beacon_unreachable;
+            }
         }
         break;
     case PairTap::cancel:
-        hosts_cancel(hosts);
-        pair_screen_reset(&app->pair);
+        if (app->pair.mode == PairMode::code)
+        {
+            hosts_end_code(hosts);
+            app->pair.mode = PairMode::device;
+        }
+        pair_device_reset(app);
         break;
     case PairTap::send_code:
-        send_code(app->pair.code);
+        send_code(hosts->code_digits);
         break;
-    case PairTap::proceed:
-        app->home.selected = app->pair_host;
+    case PairTap::retry:
+        hosts_show_code(hosts, app->pair_beacon.c_str());
+        break;
+    case PairTap::done:
+    {
+        int32_t index = app->pair_host;
+        if (app->pair.mode == PairMode::code)
+        {
+            // The device that typed our code, by its key (the list may have moved).
+            for (size_t i = 0; i < hosts->known.size(); i++)
+            {
+                if (std::memcmp(hosts->known[i].key, hosts->code_key, NET_KEY_SIZE) == 0)
+                {
+                    index = static_cast<int32_t>(i);
+                }
+            }
+            hosts_end_code(hosts);
+        }
+        if (index >= 0)
+        {
+            app->home.selected = index;
+        }
         return NavAction::home;
+    }
     }
     return NavAction::none;
 }
 
+// For testing without devices (--screen pair-typing, pair-code, pair-paired):
+// an example of that step over what pair_view found.
+static void pair_example(App* app, PairView* view)
+{
+    switch (app->pair_example)
+    {
+    case 1:
+        app->pair.mode = PairMode::device;
+        view->step = PairStep::typing;
+        view->host_name = "KITCHEN PC";
+        view->code_ready = true;
+        if (app->pair.typed[0] == '\0')
+        {
+            std::snprintf(app->pair.typed, sizeof(app->pair.typed), "%s", "482193");
+        }
+        break;
+    case 2:
+        app->pair.mode = PairMode::code;
+        view->code_step = PairCodeStep::showing;
+        view->shown_code = "915004238";
+        view->busy_code = true;
+        view->error = "";
+        break;
+    case 3:
+        app->pair.mode = PairMode::device;
+        view->step = PairStep::done;
+        view->done_name = "KITCHEN PC";
+        view->done_kind = "PICCOLO";
+        view->done_granted = "GAMEPAD, REMOTE PLAY, SETTINGS";
+        break;
+    default:
+        break;
+    }
+}
+
 static NavAction draw_pair(App* app)
 {
-    const char* found[HOSTS_MAX_FOUND];
-    int32_t found_count = 0;
+    PairLists lists;
     PairView view;
-    pair_view(app, &view, found, &found_count);
+    pair_view(app, &view, &lists);
+    pair_example(app, &view);
     PairTap tap = PairTap::none;
     NavAction action = pair_screen_draw(&app->pair, &app->ui, &view, &tap);
-    NavAction tapped = pair_tap(app, tap, found_count);
+    NavAction tapped = pair_tap(app, tap, lists.count);
     return tapped != NavAction::none ? tapped : action;
 }
 
@@ -1100,11 +1357,11 @@ static void draw_screen(App* app)
             break;
         case Screen::gamepad:
             action = gamepad_screen_draw(&app->ui, hosts_pad_port(&app->hosts), &link,
-                                         selected_allows(app, NetAccessLevel::stream), &app->layouts, &app->editor);
+                                         selected_allows(app, NET_CAP_STREAM), &app->layouts, &app->editor);
             break;
         case Screen::remote_play:
             action = remote_play_screen_draw(&app->ui, selected_host(app), hosts_pad_port(&app->hosts), &link,
-                                             selected_allows(app, NetAccessLevel::stream), show_touch, &app->stream, &app->layouts,
+                                             selected_allows(app, NET_CAP_STREAM), show_touch, &app->stream, &app->layouts,
                                              &app->editor);
             break;
         case Screen::settings:
@@ -1134,7 +1391,7 @@ static void draw_screen(App* app)
         draw_guest_card(app);
     }
     touch_ui_end_screen();
-    // The ports' tabs over the pads (any access level: read only), down
+    // The ports' tabs over the pads (whatever it grants: read only), down
     // while the sheet or DEVICES covers them.
     if (app->screen == Screen::gamepad || app->screen == Screen::remote_play)
     {
@@ -1300,9 +1557,10 @@ static void run_web_commands(App* app)
             }
             break;
         case WebCommand::pair_lan:
-        case WebCommand::pair_internet:
+        case WebCommand::pair_enter:
         case WebCommand::pair_cancel:
-        case WebCommand::pair_continue:
+        case WebCommand::pair_done:
+        case WebCommand::pair_mode:
         {
             if (app->screen != Screen::pair)
             {
@@ -1312,16 +1570,28 @@ static void run_web_commands(App* app)
             PairTap tap = PairTap::cancel;
             if (command.command == WebCommand::pair_lan)
             {
-                app->pair.selected = command.a;
+                app->pair.selected = command.a;   // found_count: ENTER A CODE
                 tap = PairTap::pair;
             }
-            else if (command.command == WebCommand::pair_internet)
+            else if (command.command == WebCommand::pair_enter)
             {
-                tap = PairTap::internet;
+                // The page's field: ENTER A CODE right away (no list in a browser).
+                if (app->pair_step == PairStep::list)
+                {
+                    app->pair.selected = found_count;
+                    pair_tap(app, PairTap::pair, found_count);
+                }
+                std::snprintf(app->pair.typed, sizeof(app->pair.typed), "%.9s", command.text);
+                tap = PairTap::submit;
             }
-            else if (command.command == WebCommand::pair_continue)
+            else if (command.command == WebCommand::pair_done)
             {
-                tap = PairTap::proceed;
+                tap = PairTap::done;
+            }
+            else if (command.command == WebCommand::pair_mode)
+            {
+                app->pair.mode = command.a == 1 ? PairMode::code : PairMode::device;
+                tap = PairTap::mode;
             }
             handle_action(app, pair_tap(app, tap, found_count));
             break;
@@ -1426,9 +1696,10 @@ static void publish_web_state(App* app)
         web_shell_string(web, "name", host->name.c_str());
         web_shell_bool(web, "online", host->online);
         web_shell_bool(web, "internet", host->internet);
-        web_shell_string(web, "access", net_access_level_name(host->access));
-        web_shell_bool(web, "remote_play", net_access_allows(host->access, NetAccessLevel::stream));
-        web_shell_bool(web, "full", net_access_allows(host->access, NetAccessLevel::full));
+        web_shell_string(web, "kind", kind_label(host->kind));
+        web_shell_bool(web, "gamepad", (host->granted & NET_CAP_GAMEPAD) != 0);
+        web_shell_bool(web, "remote_play", (host->granted & NET_CAP_STREAM) != 0);
+        web_shell_bool(web, "full", (host->granted & NET_CAP_SETTINGS) != 0);
         web_shell_int(web, "down_kbps", host->down_kbps);
         web_shell_int(web, "up_kbps", host->up_kbps);
         web_shell_bool(web, "measuring", hosts_measuring(hosts, static_cast<int32_t>(i)));
@@ -1440,22 +1711,31 @@ static void publish_web_state(App* app)
     web_shell_open(web, "pair", '{');
     if (app->screen == Screen::pair)
     {
-        const char* found[HOSTS_MAX_FOUND];
-        int32_t found_count = 0;
+        PairLists lists;
         PairView view;
-        pair_view(app, &view, found, &found_count);
-        web_shell_string(web, "step", view.step == PairStep::waiting ? "waiting" : (view.step == PairStep::paired ? "paired" : "pick"));
-        web_shell_string(web, "code", app->pair.code);
-        web_shell_bool(web, "internet", view.internet);
-        web_shell_bool(web, "asked", view.host_asked);
+        pair_view(app, &view, &lists);
+        static const char* const STEPS[3] = {"list", "typing", "done"};
+        static const char* const CODE_STEPS[4] = {"starting", "showing", "chosen", "done"};
+        web_shell_string(web, "mode", app->pair.mode == PairMode::code ? "code" : "device");
+        web_shell_string(web, "step", STEPS[static_cast<int32_t>(view.step)]);
+        web_shell_string(web, "code_step", CODE_STEPS[static_cast<int32_t>(view.code_step)]);
         web_shell_string(web, "error", view.error);
         web_shell_string(web, "host", view.host_name);
-        web_shell_bool(web, "remote_play", view.remote_play);
-        web_shell_bool(web, "full", view.devices);
+        web_shell_bool(web, "internet", app->pair_internet);
+        web_shell_bool(web, "code_ready", view.code_ready);
+        web_shell_bool(web, "checking", view.checking);
+        web_shell_bool(web, "wrong", view.wrong);
+        web_shell_string(web, "code", view.shown_code);
+        web_shell_string(web, "done_name", view.done_name);
+        web_shell_string(web, "done_kind", view.done_kind);
+        web_shell_string(web, "done_granted", view.done_granted);
         web_shell_open(web, "found", '[');
-        for (int32_t i = 0; i < found_count; i++)
+        for (int32_t i = 0; i < lists.count; i++)
         {
-            web_shell_string(web, nullptr, found[i]);
+            web_shell_open(web, nullptr, '{');
+            web_shell_string(web, "name", lists.names[i]);
+            web_shell_string(web, "kind", lists.kinds[i]);
+            web_shell_close(web, '}');
         }
         web_shell_close(web, ']');
     }
@@ -1479,7 +1759,7 @@ static void publish_web_state(App* app)
     web_shell_string(web, "status", app->stream.status);
     web_shell_number(web, "aspect", static_cast<double>(app->stream.aspect));
     web_shell_int(web, "game_running", hosts_game_running(hosts));
-    web_shell_bool(web, "remote_play", selected_allows(app, NetAccessLevel::stream));
+    web_shell_bool(web, "remote_play", selected_allows(app, NET_CAP_STREAM));
     web_shell_bool(web, "full", selected_full_access(app));
     web_shell_bool(web, "headless_on", hosts->headless_on);
     web_shell_bool(web, "headless_yours", hosts->headless_yours);
@@ -1733,9 +2013,9 @@ static bool app_frame(void* data)
         SDL_Log("Network: lost %s (%s): HOME", selected_host(app), hosts_refusal_text(app->hosts.refusal));
         go_to(app, Screen::home);
     }
-    // The host changed this phone's level while it plays (the access
-    // event; the host already stopped what the new level doesn't allow).
-    if (app->screen == Screen::remote_play && !selected_allows(app, NetAccessLevel::stream) && !app->testing)
+    // The host took REMOTE PLAY away while it plays (the caps event; the
+    // host already stopped what it no longer allows).
+    if (app->screen == Screen::remote_play && !selected_allows(app, NET_CAP_STREAM) && !app->testing)
     {
         SDL_Log("Network: %s took REMOTE PLAY away: GAMEPAD", selected_host(app));
         go_to(app, Screen::gamepad);
@@ -1819,6 +2099,18 @@ int main(int argc, char** argv)
             app->testing = true;
             i++;
         }
+        else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && SDL_strncmp(argv[i + 1], "pair-", 5) == 0)
+        {
+            // A PAIR step with example data (no device needed).
+            static const char* const EXAMPLES[3] = {"pair-typing", "pair-code", "pair-paired"};
+            for (int32_t e = 0; e < 3; e++)
+            {
+                app->pair_example = SDL_strcmp(argv[i + 1], EXAMPLES[e]) == 0 ? e + 1 : app->pair_example;
+            }
+            first = Screen::pair;
+            app->testing = true;
+            i++;
+        }
         else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && SDL_strcmp(argv[i + 1], "devices") == 0)
         {
             // DEVICES over GAMEPAD, with an example list (no host needed).
@@ -1846,7 +2138,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            SDL_Log("Usage: piccoletto [--screen home|pair|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK] [--join LINK]");
+            SDL_Log("Usage: piccoletto [--screen home|pair|pair-typing|pair-code|pair-paired|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK] [--join LINK]");
         }
     }
 
@@ -1903,7 +2195,9 @@ int main(int argc, char** argv)
     load_files(app);
     if (!app->settings_dir.empty())
     {
-        hosts_create(&app->hosts, app->settings_dir.c_str(), app->settings.phone_name);
+        NetDeviceInfo info;
+        device_info(app, &info);
+        hosts_create(&app->hosts, app->settings_dir.c_str(), &info);
     }
     haptics_open(&app->haptics);
     // librashader (REMOTE PLAY SHADER): next to the program, or where the

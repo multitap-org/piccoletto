@@ -1,13 +1,16 @@
 // hosts (src/hosts.*) against a real host in the same process (net_access,
 // as piccolo runs it, answering speed tests like piccolo's main.cpp) over
-// loopback: pairing with the code, a wrong code, connecting again as a
-// paired phone with the level the host gives, the ping, a speed test, the
-// host online through discovery, FORGET telling the host, the host
+// loopback: PAIR A DEVICE on the LAN (the host pops its code up, the phone
+// types it; a wrong one, then a new code), connecting again as a paired
+// phone with what the host grants (changed live too), the ping, a speed
+// test, the host online through discovery, FORGET telling the host, the host
 // unpairing the phone; REMOTE PLAY's stream (stream_start, game_state,
 // stream_info, a coded frame arriving exact, stream_stop); DEVICES (the
-// host's list, moving one, the list again); across the internet: pairing
-// with the host's pair link through a beacon in the same process, then
-// connecting through it (the host isn't on the LAN for a host paired so).
+// host's list, moving one, the list again); across the internet through a
+// beacon in the same process: ENTER A CODE (the host's GENERATE PAIRING
+// CODE), connecting through it, and the phone's own GENERATE PAIRING CODE
+// typed by a piccolo-like client that then grants it REMOTE PLAY; the files
+// from before 2026-11-25 (net_hosts.cfg, hosts.cfg's access) migrating.
 //
 //   piccoletto_hosts_test <scratch folder>
 
@@ -23,6 +26,7 @@
 #include "host_fs.h"
 #include "hosts.h"
 #include "net_access.h"
+#include "net_client.h"
 #include "net_content.h"
 #include "net_pair_link.h"
 #include "net_stream.h"
@@ -67,14 +71,15 @@ struct Pump
     uint32_t         devices_requests = 0;
     BeaconServer*    beacon_server = nullptr;   // across the internet (the last part)
     BeaconNet*       beacon_net = nullptr;
-    // Pairing requests: the host's user types the phone's code (read from the
-    // phone, as a person would), at `grant`; `wrong_once` types it wrong the
-    // first time (the phone makes a new one and asks again).
-    NetAccessLevel   grant = NetAccessLevel::gamepad;
+    // Pairing requests: the host pops its code up with `grant` ticked; the
+    // phone's user reads it (pair_lan types it); `wrong_once` types it wrong
+    // the first time (the host shows a new one).
+    NetCaps          grant = NET_CAP_GAMEPAD;
     bool             wrong_once = false;
     uint32_t         requests = 0;
     std::string      first_code;         // the code the first request of a pairing showed
     std::string      last_code;          // and the last one
+    std::string      to_type;            // shown, not typed yet
 };
 
 static void host_send_devices(Pump* pump, uint32_t peer, uint32_t id)
@@ -203,20 +208,14 @@ static void pump_once(Pump* pump)
     {
         if (event.type == NetAccessEventType::pairing_requested)
         {
-            char code[NET_PAIR_CODE_DIGITS + 1] = {};
-            hosts_pair_code(pump->hosts, code);
             pump->requests++;
             if (pump->requests == 1)
             {
-                pump->first_code = code;
+                pump->first_code = event.code;
             }
-            pump->last_code = code;
-            if (pump->wrong_once)
-            {
-                pump->wrong_once = false;
-                code[NET_PAIR_CODE_DIGITS - 1] = code[NET_PAIR_CODE_DIGITS - 1] == '9' ? '0' : static_cast<char>(code[NET_PAIR_CODE_DIGITS - 1] + 1);
-            }
-            net_access_answer_pairing(pump->access, event.peer, code, pump->grant);
+            pump->last_code = event.code;
+            pump->to_type = event.code;
+            net_access_set_pairing_grants(pump->access, event.peer, pump->grant);
             continue;
         }
         if (event.type != NetAccessEventType::message)
@@ -327,6 +326,36 @@ static void pump_once(Pump* pump)
     SDL_Delay(1);
 }
 
+// PAIR A DEVICE on the LAN: the phone asks, the host pops its code up (the
+// pump keeps it, as a person reads it), the phone's user types it. Until
+// the pairing is over.
+static bool pair_lan(Pump* pump, NetAddress address)
+{
+    pump->to_type.clear();
+    if (!hosts_pair(pump->hosts, address))
+    {
+        return false;
+    }
+    double end = now_seconds() + 10.0;
+    while (now_seconds() < end && pump->hosts->pair == PairStatus::busy)
+    {
+        pump_once(pump);
+        if (pump->hosts->pair_code_needed && !pump->to_type.empty())
+        {
+            std::string code = pump->to_type;
+            pump->to_type.clear();
+            if (pump->wrong_once)
+            {
+                pump->wrong_once = false;
+                char* last = &code[NET_PAIR_CODE_DIGITS - 1];
+                *last = *last == '9' ? '0' : static_cast<char>(*last + 1);
+            }
+            hosts_pair_enter(pump->hosts, code.c_str());
+        }
+    }
+    return true;
+}
+
 static bool pump_until_pair_done(Pump* pump)
 {
     double end = now_seconds() + 5.0;
@@ -351,14 +380,14 @@ static void end_wait(Pump* pump, double seconds)
     }
 }
 
-// Until the connected host's level is `level` (told live, no reconnect).
-static bool pump_until_access(Pump* pump, NetAccessLevel level)
+// Until the connected host lets the phone use `caps` (told live, no reconnect).
+static bool pump_until_granted(Pump* pump, NetCaps caps)
 {
     double end = now_seconds() + 5.0;
     while (now_seconds() < end)
     {
         pump_once(pump);
-        if (!pump->hosts->known.empty() && pump->hosts->known[0].access == level)
+        if (!pump->hosts->known.empty() && pump->hosts->known[0].granted == caps)
         {
             return true;
         }
@@ -380,6 +409,19 @@ static bool pump_until_link_done(Pump* pump)
     return false;
 }
 
+// What the phone uses; everything it can get from a piccolo.
+constexpr NetCaps PHONE_USES = NET_CAP_GAMEPAD | NET_CAP_STREAM | NET_CAP_SETTINGS;
+
+static NetDeviceInfo device_info(const char* name, NetAppKind kind, NetCaps offers, NetCaps uses)
+{
+    NetDeviceInfo info;
+    std::snprintf(info.name, sizeof(info.name), "%s", name);
+    info.kind = kind;
+    info.offers = offers;
+    info.uses = uses;
+    return info;
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 2)
@@ -399,10 +441,13 @@ int main(int argc, char** argv)
     std::string host_devices_path = host_dir + "/devices.cfg";
     check(net_identity_load_or_create(host_identity_path.c_str(), &host_identity), "host identity");
     NetAccess* access = new NetAccess{};
-    check(net_access_create(access, TEST_PORT, "TEST HOST", &host_identity, host_devices_path.c_str()), "host listens");
+    NetDeviceInfo host_info = device_info("TEST HOST", NetAppKind::piccolo, NET_CAPS_ALL,
+                                          NET_CAP_SHARE | NET_CAP_SETTINGS);
+    check(net_access_create(access, TEST_PORT, &host_info, &host_identity, host_devices_path.c_str()), "host listens");
 
+    NetDeviceInfo phone_info = device_info("TEST PHONE", NetAppKind::piccoletto, 0, PHONE_USES);
     Hosts* hosts = new Hosts{};
-    check(hosts_create(hosts, phone_dir.c_str(), "TEST PHONE"), "hosts_create");
+    check(hosts_create(hosts, phone_dir.c_str(), &phone_info), "hosts_create");
     check(hosts->known.empty(), "nothing paired at first");
 
     // A guest link: the host at HOSTS_GUEST, outside the paired list, never saved.
@@ -411,9 +456,9 @@ int main(int argc, char** argv)
     check(hosts_set_guest(hosts, "piccoletto://join/7hqelxhbgx2e3?t=abcdefghijklmnopqrstuvwxyz&b=my.beacon"),
           "a guest link from Android's intent");
     const KnownHost* guest = hosts_host(hosts, HOSTS_GUEST);
-    check(guest != nullptr && guest->access == NetAccessLevel::stream && hosts->guest_beacon == "my.beacon",
+    check(guest != nullptr && (guest->granted & NET_CAP_STREAM) != 0 && hosts->guest_beacon == "my.beacon",
           "its host may stream, through the link's beacon");
-    check(hosts->known.empty() && !host_fs_exists((phone_dir + "/net_hosts.cfg").c_str()), "nothing paired or saved");
+    check(hosts->known.empty() && !host_fs_exists((phone_dir + "/net_devices.cfg").c_str()), "nothing paired or saved");
     hosts_clear_guest(hosts);
     check(hosts_host(hosts, HOSTS_GUEST) == nullptr, "cleared");
     check(hosts_set_guest(hosts, "https://get-piccolo.app/play/piccoletto/#join=7hqelxhbgx2e3.abcdefghijklmnopqrstuvwxyz") &&
@@ -430,14 +475,13 @@ int main(int argc, char** argv)
     check(hosts_parse_address(typed, &address) && address.port == TEST_PORT, "typed address with a port");
     check(!hosts_parse_address("127.0.0.1:99999", &address), "a port out of range");
 
-    // The phone shows its code; the host's user types it (the pump).
+    // The host pops its code up; the phone's user types it (pair_lan).
     char code[NET_PAIR_CODE_DIGITS + 1];
-    check(!hosts_pair(hosts, address, "123456"), "a code that isn't 9 digits doesn't start");
+    check(!hosts_pair_enter(hosts, "123456789"), "no code is taken while nothing asked for one");
 
     // The host takes no new devices: it says so.
     access->accept_pairing = false;
-    net_pair_code_generate(code);
-    check(hosts_pair(hosts, address, code), "pair starts");
+    check(hosts_pair(hosts, address), "pair starts");
     check(pump_until_pair_done(&pump) && hosts->pair == PairStatus::failed &&
               hosts->refusal == NetClientRefusal::pairing_closed,
           "no new devices on the host");
@@ -447,25 +491,24 @@ int main(int argc, char** argv)
         pump_once(&pump);
     }
 
-    // Typed wrong once there: the phone shows a new code and asks again; the
-    // right one pairs.
+    // Typed wrong once: the host shows a new code and asks again; the right
+    // one pairs.
     pump.wrong_once = true;
     pump.requests = 0;
-    net_pair_code_generate(code);
     hosts->pair = PairStatus::idle;
-    check(hosts_pair(hosts, address, code), "pair starts");
-    check(pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired, "paired");
-    check(pump.requests == 2 && pump.first_code == code && pump.last_code != pump.first_code,
-          "a wrong code there: a new code here, asked again");
+    check(pair_lan(&pump, address), "pair starts");
+    check(hosts->pair == PairStatus::paired, "paired");
+    check(pump.requests == 2 && pump.last_code != pump.first_code, "a wrong code: the host shows a new one");
     check(hosts->known.size() == 1 && hosts->paired_index == 0, "one paired host");
     if (!hosts->known.empty())
     {
         check(hosts->known[0].name == "TEST HOST", "the host's name");
         check(hosts->known[0].address.port == TEST_PORT, "its address kept");
-        check(hosts->known[0].access == NetAccessLevel::gamepad, "new devices start at gamepad");
+        check(hosts->known[0].granted == NET_CAP_GAMEPAD, "what the host ticked: GAMEPAD");
+        check(hosts->known[0].kind == NetAppKind::piccolo, "its kind");
     }
 
-    // Connecting again as a paired phone (no code), still at gamepad.
+    // Connecting again as a paired phone (no code), still GAMEPAD only.
     for (int32_t i = 0; i < 20; i++)
     {
         pump_once(&pump);
@@ -499,34 +542,33 @@ int main(int argc, char** argv)
     check(hosts_pad_port(hosts) == 0, "no port once left");
     check(hosts_pad_link(hosts).state == LinkShown::offline, "offline once left");
 
-    // The host raises our level: the next connection brings it; HOME's
-    // refresh (hosts_measure) measures again while connected.
+    // The host grants more: the next connection brings it; HOME's refresh
+    // (hosts_measure) measures again while connected.
     if (access->trust.devices.size() == 1)
     {
-        net_access_set_level(access, 0, NetAccessLevel::full);
+        net_access_set_grants(access, 0, NET_CAPS_ALL);
     }
     check(hosts_connect(hosts, 0), "connect again");
     check(pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected again");
-    check(!hosts->known.empty() && hosts->known[0].access == NetAccessLevel::full, "the host's level");
+    check(!hosts->known.empty() && hosts->known[0].granted == PHONE_USES,
+          "what the host grants, as far as the phone uses it");
     check(!hosts->speed.running, "measured once per run: not again on its own");
     check(hosts_measure(hosts, 0) && hosts->speed.running, "the speed test runs when asked");
     end_wait(&pump, 20.0);
     check(!hosts->speed.running, "the speed test ends");
     check(!hosts->known.empty() && hosts->known[0].down_kbps > 0 && hosts->known[0].up_kbps > 0, "speeds measured");
 
-    // The host changes our level while we're connected: told at once.
+    // The host changes what it grants while we're connected: told at once.
     if (access->trust.devices.size() == 1)
     {
-        net_access_set_level(access, 0, NetAccessLevel::gamepad);
+        net_access_set_grants(access, 0, NET_CAP_GAMEPAD);
     }
-    check(pump_until_access(&pump, NetAccessLevel::gamepad) && hosts->link == LinkStatus::ready,
-          "a lower level arrives live");
+    check(pump_until_granted(&pump, NET_CAP_GAMEPAD) && hosts->link == LinkStatus::ready, "less arrives live");
     if (access->trust.devices.size() == 1)
     {
-        net_access_set_level(access, 0, NetAccessLevel::full);
+        net_access_set_grants(access, 0, NET_CAPS_ALL);
     }
-    check(pump_until_access(&pump, NetAccessLevel::full) && hosts->link == LinkStatus::ready,
-          "a higher level arrives live");
+    check(pump_until_granted(&pump, PHONE_USES) && hosts->link == LinkStatus::ready, "more arrives live");
 
     // REMOTE PLAY: the stream is asked for (with its tuning), a frame arrives
     // exact, it stops.
@@ -657,10 +699,10 @@ int main(int argc, char** argv)
     delete hosts;
     hosts = new Hosts{};
     pump.hosts = hosts;
-    check(hosts_create(hosts, phone_dir.c_str(), "TEST PHONE"), "hosts_create again");
-    check(hosts->known.size() == 1 && hosts->known[0].access == NetAccessLevel::full &&
+    check(hosts_create(hosts, phone_dir.c_str(), &phone_info), "hosts_create again");
+    check(hosts->known.size() == 1 && hosts->known[0].granted == PHONE_USES &&
               hosts->known[0].address.port == TEST_PORT,
-          "paired host, level and address kept");
+          "paired host, what it grants and its address kept");
 
     check(hosts->known.size() == 1 && hosts->known[0].down_kbps > 0, "speeds kept");
 
@@ -704,15 +746,12 @@ int main(int argc, char** argv)
     {
         pump_once(&pump);
     }
-    // Given STREAM this time (the phone asks for GAMEPAD): PAIR shows and
-    // keeps STREAM (Andrés, 2026-11-22: it kept GAMEPAD).
-    pump.grant = NetAccessLevel::stream;
-    net_pair_code_generate(code);
-    check(hosts_pair(hosts, address, code) && pump_until_pair_done(&pump) && hosts->pair == PairStatus::paired,
-          "paired again");
-    check(hosts->known.size() == 1 && hosts->known[0].access == NetAccessLevel::stream,
-          "given STREAM: the phone keeps STREAM");
-    pump.grant = NetAccessLevel::gamepad;
+    // Ticked GAMEPAD and REMOTE PLAY this time: PAIR shows and keeps both.
+    pump.grant = NET_CAP_GAMEPAD | NET_CAP_STREAM;
+    check(pair_lan(&pump, address) && hosts->pair == PairStatus::paired, "paired again");
+    check(hosts->known.size() == 1 && hosts->known[0].granted == (NET_CAP_GAMEPAD | NET_CAP_STREAM),
+          "given REMOTE PLAY: the phone keeps it");
+    pump.grant = NET_CAP_GAMEPAD;
     check(hosts_connect(hosts, 0) && pump_until_link_done(&pump) && hosts->link == LinkStatus::ready, "connected");
     for (int32_t i = 0; i < 20; i++)
     {
@@ -732,8 +771,9 @@ int main(int argc, char** argv)
     hosts_destroy(hosts);
     delete hosts;
 
-    // Across the internet: a beacon here, the host registered with it; a
-    // new phone waits with its code, the host's user types it in INVITE.
+    // Across the internet: a beacon here, the host registered with it; the
+    // host shows a code (GENERATE PAIRING CODE), a new phone types it (ENTER
+    // A CODE).
     BeaconServer* beacon_server = new BeaconServer{};
     BeaconNet* beacon_net = new BeaconNet{};
     BeaconServerConfig beacon_config;
@@ -765,15 +805,15 @@ int main(int argc, char** argv)
     check(host_fs_make_directories(internet_dir.c_str()), "the second phone's folder");
     hosts = new Hosts{};
     pump.hosts = hosts;
-    check(hosts_create(hosts, internet_dir.c_str(), "INTERNET PHONE"), "hosts_create (second phone)");
+    NetDeviceInfo internet_info = device_info("INTERNET PHONE", NetAppKind::piccoletto, 0, PHONE_USES);
+    check(hosts_create(hosts, internet_dir.c_str(), &internet_info), "hosts_create (second phone)");
     for (int32_t i = 0; i < 100; i++)
     {
         pump_once(&pump);
     }
     check(!hosts_pair_internet(hosts, "123", beacon_name), "a code that isn't 9 digits doesn't start");
-    net_pair_code_generate(code);
-    check(hosts_pair_internet(hosts, code, beacon_name), "the phone waits with its code");
-    check(net_access_invite(access, code), "the host's user types it in INVITE");
+    check(net_access_show_code(access, NET_CAP_GAMEPAD | NET_CAP_STREAM, code), "the host shows a code");
+    check(hosts_pair_internet(hosts, code, beacon_name), "the phone's user types it");
     end = now_seconds() + 10.0;
     while (now_seconds() < end && hosts->pair == PairStatus::busy)
     {
@@ -782,6 +822,7 @@ int main(int argc, char** argv)
     check(hosts->pair == PairStatus::paired && hosts->known.size() == 1, "paired across the internet");
     if (hosts->known.size() == 1)
     {
+        check(hosts->known[0].granted == (NET_CAP_GAMEPAD | NET_CAP_STREAM), "the shown code's ticks");
         check(hosts->known[0].beacon == beacon_name, "the beacon kept");
         check(hosts->known[0].address.port == 0, "no LAN address");
         check(hosts->known[0].internet, "reachable through the beacon");
@@ -824,8 +865,87 @@ int main(int argc, char** argv)
     hosts_destroy(hosts);
     delete hosts;
     hosts = new Hosts{};
-    check(hosts_create(hosts, internet_dir.c_str(), "INTERNET PHONE"), "hosts_create again (second phone)");
+    pump.hosts = hosts;
+    check(hosts_create(hosts, internet_dir.c_str(), &internet_info), "hosts_create again (second phone)");
     check(hosts->known.size() == 1 && hosts->known[0].beacon == beacon_name, "the beacon saved");
+
+    // The phone's own GENERATE PAIRING CODE: a piccolo elsewhere (a client
+    // here, as piccolo's FILE TRANSFER connection is) types it in its ENTER A
+    // CODE; paired, it ticks last: REMOTE PLAY.
+    std::string other_dir = root + "/other_host";
+    check(host_fs_make_directories(other_dir.c_str()), "the other piccolo's folder");
+    NetKeypair other_identity;
+    check(net_identity_load_or_create((other_dir + "/identity.cfg").c_str(), &other_identity), "its identity");
+    NetDeviceInfo other_info = device_info("ANA'S DECK", NetAppKind::piccolo, NET_CAPS_ALL,
+                                           NET_CAP_SHARE | NET_CAP_SETTINGS);
+    NetClient* other = new NetClient{};
+    check(net_client_create(other, &other_identity, &other_info, (other_dir + "/devices.cfg").c_str()),
+          "the other piccolo's client");
+    check(hosts_show_code(hosts, beacon_name) && hosts->code == CodeStatus::showing &&
+              net_pair_code_valid(hosts->code_digits),
+          "the phone shows a code");
+    for (int32_t i = 0; i < 200; i++)   // its listener registers with the beacon
+    {
+        pump_once(&pump);
+    }
+    check(net_client_pair_beacon(other, &beacon_address, 1, hosts->code_digits), "the piccolo types it");
+    bool other_ready = false;
+    end = now_seconds() + 10.0;
+    while (now_seconds() < end && hosts->code != CodeStatus::paired)
+    {
+        pump_once(&pump);
+        NetClientEvent event;
+        while (net_client_poll(other, &event))
+        {
+            if (event.type == NetClientEventType::ready && event.newly_paired && event.device >= 0)
+            {
+                other_ready = true;
+                net_client_set_grants(other, static_cast<uint32_t>(event.device), NET_CAP_STREAM);   // its DONE
+            }
+        }
+    }
+    check(other_ready, "paired on the piccolo's side");
+    check(hosts->code == CodeStatus::paired && hosts->code_host == "ANA'S DECK" &&
+              hosts->code_granted == NET_CAP_STREAM,
+          "paired here, with what it granted: REMOTE PLAY");
+    check(!hosts->code_running, "the listener stopped");
+    for (int32_t i = 0; i < 20; i++)
+    {
+        pump_once(&pump);
+    }
+    bool listed = false;
+    for (size_t i = 0; i < hosts->known.size(); i++)
+    {
+        listed = listed || (hosts->known[i].name == "ANA'S DECK" && hosts->known[i].granted == NET_CAP_STREAM);
+    }
+    check(listed, "the piccolo is in the list, with REMOTE PLAY");
+    hosts_end_code(hosts);
+    net_client_destroy(other);
+    delete other;
+    net_keypair_wipe(&other_identity);
+    hosts_destroy(hosts);
+    delete hosts;
+
+    // The files from before 2026-11-25: net_hosts.cfg (whom the phone went to)
+    // joins net_devices.cfg, and hosts.cfg's access level counts until the
+    // host says.
+    std::string old_dir = root + "/phone_old";
+    check(host_fs_make_directories(old_dir.c_str()), "an old phone's folder");
+    char hex[2 * NET_KEY_SIZE + 1];
+    net_bytes_to_hex(host_identity.public_key, NET_KEY_SIZE, hex, sizeof(hex));
+    std::string old_hosts = std::string("[device:") + hex + "]\nname = OLD HOST\npaired = 2026-11-20\n";
+    std::string old_info = std::string("[host:") + hex + "]\naccess = stream\ninternet = true\n";
+    check(host_fs_write_file((old_dir + "/net_hosts.cfg").c_str(), old_hosts.data(), old_hosts.size()) &&
+              host_fs_write_file((old_dir + "/hosts.cfg").c_str(), old_info.data(), old_info.size()),
+          "the old files");
+    hosts = new Hosts{};
+    pump.hosts = hosts;
+    check(hosts_create(hosts, old_dir.c_str(), &internet_info), "hosts_create (old files)");
+    check(hosts->known.size() == 1 && hosts->known[0].name == "OLD HOST" &&
+              hosts->known[0].granted == (NET_CAP_GAMEPAD | NET_CAP_STREAM),
+          "the old host, with what its level covered");
+    check(host_fs_exists((old_dir + "/net_devices.cfg").c_str()) && !host_fs_exists((old_dir + "/net_hosts.cfg").c_str()),
+          "net_hosts.cfg merged and set aside");
     hosts_destroy(hosts);
     delete hosts;
     pump.beacon_server = nullptr;

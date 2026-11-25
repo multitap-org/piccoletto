@@ -12,10 +12,12 @@ OpenGL ES 2) and the desktop (Linux, Windows) for development.
 
 ### What's there
 
-- **Pairing**: the phone shows a code and the piccolo's user types it (on the
-  LAN the piccolo asks by itself; across the internet in TOOLS > INVITE, the
-  code sent with SEND CODE), everything encrypted. FORGET on both sides. Ping,
-  packet loss and a speed test with each host.
+- **Pairing**: PAIR A DEVICE (a piccolo on the LAN pops its code up with the
+  permissions it grants; you type it here) or ENTER A CODE (a piccolo
+  elsewhere shows one), and GENERATE PAIRING CODE (the piccolo types this
+  phone's code, sent with SEND CODE). Everything encrypted; the device asked
+  has the code and grants the permissions. FORGET on both sides. Ping, packet
+  loss and a speed test with each host.
 - **GAMEPAD**: the phone as a controller (a RetroPad): multi-touch buttons and
   sticks, vibration, the port's LED; a real gamepad connected to the phone
   works too. EDIT LAYOUT (move, resize, pinch) on every layout.
@@ -25,11 +27,11 @@ OpenGL ES 2) and the desktop (Linux, Windows) for development.
   Shaders: piccolo's curated presets through librashader (Vulkan).
 - **GO HEADLESS / PLAY ON <host>**: take the game to the phone (piccolo hides
   behind a tray icon) and give it back.
-- **DEVICES** (FULL access): the host's ports, who plays on which, move a device.
+- **DEVICES** (SETTINGS granted): the host's ports, who plays on which, move a device.
 - **Quick menu**: a sidebar from the right (the see-through arrow or hold
   START): the host, the other mode, SHADER, PACING, EDIT LAYOUT, DEVICES,
   touch controls, ROTATE, LEAVE.
-- Access level changes on piccolo apply at once, without reconnecting.
+- Permission changes on piccolo apply at once, without reconnecting.
 - Portrait and landscape, ROTATE as a lock, gamepad navigation everywhere,
   SETTINGS (theme, language).
 - Vulkan, or OpenGL ES when Vulkan isn't usable.

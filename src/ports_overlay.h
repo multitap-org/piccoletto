@@ -7,7 +7,7 @@
 //          level (read only: the host's list comes with devices_watch).
 //          When the list changes, the tabs rise (the changed ports whole; a
 //          device that left greyed on its old port) and go down ~3 s later.
-//   BOARD  DEVICES (FULL access, from the ☰ sheet): tap a device to pick it,
+//   BOARD  DEVICES (SETTINGS granted, from the ☰ sheet): tap a device to pick it,
 //          tap another port to move it there (device_port), DONE closes.
 //
 // The list is the host's (hosts->devices): only controllers that joined a

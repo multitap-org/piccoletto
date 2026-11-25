@@ -11,9 +11,9 @@
 
 // web_shell.h's WebCommand.
 const PICCOLETTO_CMD = {
-  go: 0, select: 1, menu: 2, pair_internet: 3, pair_cancel: 4, pair_continue: 5, forget: 6, measure: 7,
+  go: 0, select: 1, menu: 2, pair_enter: 3, pair_cancel: 4, pair_done: 5, forget: 6, measure: 7,
   set_name: 8, set_shader: 9, set_pacing: 10, set_vibrate: 11, headless: 12, pause: 13, devices: 14,
-  move_device: 15, shader_answer: 16, open_link: 17, pair_lan: 18,
+  move_device: 15, shader_answer: 16, open_link: 17, pair_lan: 18, pair_mode: 19,
 };
 const PICCOLETTO_SCREEN = { home: 0, pair: 1, gamepad: 2, remote_play: 3, settings: 4 };
 const PICCOLETTO_POLL_MS = 100;
@@ -87,7 +87,14 @@ function piccoletto_poll() {
 
 function piccoletto_waiting() {
   const s = piccoletto_shell.state;
-  return s !== null && ((s.screen === 'pair' && s.pair.step === 'waiting') || (s.guest.on && s.link.state === 'connecting'));
+  if (s === null) {
+    return false;
+  }
+  const p = s.pair;
+  const pairing = s.screen === 'pair' &&
+                  ((p.mode === 'device' && p.step === 'typing' && (!p.code_ready || p.checking)) ||
+                   (p.mode === 'code' && (p.code_step === 'showing' || p.code_step === 'chosen' || p.code_step === 'starting')));
+  return pairing || (s.guest.on && s.link.state === 'connecting');
 }
 
 // The four port lights one at a time, 1 2 3 4 3 2 1 ... (retroui's port_indicators).
@@ -187,13 +194,13 @@ function piccoletto_home_card(s) {
   const host = piccoletto_selected_host();
   if (host === null) {
     return '<div class="card"><span class="kicker">piccoletto</span><h2>Pair a piccolo</h2>' +
-           '<small>piccoletto is a pad and a screen for piccolo. Pair this browser with one: it shows a code, and on the piccolo ' +
-           'you type it in TOOLS &gt; INVITE.</small>' +
+           '<small>piccoletto is a pad and a screen for piccolo. Pair this browser with one: generate a pairing code here, ' +
+           'and on the piccolo type it in PAIR… &gt; PAIR A DEVICE &gt; ENTER A CODE. Or type a code the piccolo shows.</small>' +
            '<div class="row"><button class="btn primary wide" data-act="pair">Pair a device</button></div></div>';
   }
   let html = '<div class="card"><span class="kicker">Your host</span><h2>' + piccoletto_esc(host.name) + '</h2>' +
              '<div class="facts"><span><span class="lamp' + (host.online || host.internet ? ' on' : '') + '"></span>' +
-             piccoletto_host_where(host) + '</span><span>' + piccoletto_esc(host.access) + ' access</span>';
+             piccoletto_host_where(host) + '</span><span>' + piccoletto_esc(host.kind) + '</span>';
   if (host.down_kbps > 0) {
     html += '<span>' + Math.round(host.down_kbps / 1000) + ' Mbit/s down</span>';
   }
@@ -205,7 +212,10 @@ function piccoletto_home_card(s) {
   if (host.remote_play) {
     html += '<button class="btn primary wide" data-act="remote">Remote play</button>';
   }
-  html += '<button class="btn wide' + (host.remote_play ? '' : ' primary') + '" data-act="gamepad">Gamepad</button></div>';
+  if (host.gamepad) {
+    html += '<button class="btn wide' + (host.remote_play ? '' : ' primary') + '" data-act="gamepad">Gamepad</button>';
+  }
+  html += '</div>';
   html += '<small>' + (s.hosts.length > 1 ? 'Or pick another host in SETTINGS.' : 'More hosts: PAIR in the strip.') + '</small></div>';
   return html;
 }
@@ -330,48 +340,102 @@ function piccoletto_pane_hosts(s) {
     if (host.remote_play) {
       rows += '<button type="button" class="go" data-play="' + i + '">Play</button>';
     }
-    rows += '<button type="button" data-pad="' + i + '">Pad</button>' +
-            '<button type="button" data-forget="' + i + '">' + (piccoletto_shell.forget_asked === i ? 'Sure?' : 'Forget') + '</button></span></li>';
+    if (host.gamepad) {
+      rows += '<button type="button" data-pad="' + i + '">Pad</button>';
+    }
+    rows += '<button type="button" data-forget="' + i + '">' + (piccoletto_shell.forget_asked === i ? 'Sure?' : 'Forget') + '</button></span></li>';
   });
   rows += '<li class="folder" data-page="pair"><span class="name">+ Pair a device</span></li>';
   return rows;
 }
 
+function piccoletto_code_text(code) {
+  return code.length === 9 ? code.slice(0, 3) + ' ' + code.slice(3, 6) + ' ' + code.slice(6) : code;
+}
+
+// A paired device and what it lets this browser use (both modes' last step).
+function piccoletto_pair_done(p) {
+  return '<li class="head">Paired</li><li><span class="lamp on"></span><span class="name">' + piccoletto_esc(p.done_name) +
+         '</span><span class="size">' + piccoletto_esc(p.done_kind) + '</span></li>' +
+         '<li class="head">Permissions granted on ' + piccoletto_esc(p.done_name) + '</li>' +
+         '<li class="block"><span class="name" style="white-space:normal">' + piccoletto_esc(p.done_granted) + '</span>' +
+         '<button class="btn primary" data-act="pair_done">Done</button></li>';
+}
+
+// PAIR (the pairing v3 page): PAIR A DEVICE types the code a device shows;
+// GENERATE PAIRING CODE shows one for a piccolo to type. This browser never
+// grants anything: it only shows what it was given.
 function piccoletto_pane_pair(s) {
   if (s.screen !== 'pair') {
     return '<li class="block"><button class="btn primary" data-act="pair">Start pairing</button>' +
-           '<span class="hint">This browser shows a code; on the piccolo you type it in TOOLS &gt; INVITE.</span></li>';
+           '<span class="hint">Type a code a piccolo shows, or show one for the piccolo to type.</span></li>';
   }
   const p = s.pair;
-  const code = p.code.length === 9 ? p.code.slice(0, 3) + ' ' + p.code.slice(3, 6) + ' ' + p.code.slice(6) : p.code;
-  if (p.step === 'paired') {
-    return '<li class="head">Paired</li><li class="block"><span class="name" style="white-space:normal">' + piccoletto_esc(p.host) + '</span>' +
-           '<span class="hint">Gamepad' + (p.remote_play ? ', remote play' : '') + (p.full ? ', devices' : '') + '</span>' +
-           '<button class="btn primary" data-act="pair_continue">Continue</button></li>';
-  }
-  let rows = '';
-  if (p.step === 'pick' && p.found.length > 0) {
-    rows += '<li class="head">On this network</li>';
-    p.found.forEach(function (name, i) {
-      rows += '<li><span class="lamp on"></span><span class="name">' + piccoletto_esc(name) + '</span>' +
-              '<span class="actions" style="visibility:visible"><button type="button" class="go" data-pairlan="' + i + '">Pair</button></span></li>';
-    });
-  }
-  rows += '<li class="head">This browser\'s code</li><li class="block"><span class="bigcode">' + piccoletto_esc(code) + '</span>' +
-          '<span class="hint">Send it to whoever has the piccolo. There: TOOLS &gt; INVITE, type it, pick the access level, ALLOW.</span>' +
-          '<span style="display:flex;gap:6px"><button class="btn wide" data-act="copy">Copy</button>' +
-          (navigator.share ? '<button class="btn wide" data-act="share">Send…</button>' : '') + '</span></li>';
-  if (p.step === 'waiting') {
-    rows += '<li>' + piccoletto_wait_lights() + '<span class="name">' + (p.asked ? 'The host has your request' : 'Waiting for the host') + '</span></li>' +
-            '<li class="block"><button class="btn" data-act="pair_cancel">Cancel</button></li>';
-  } else {
-    if (p.error !== '') {
-      rows += '<li class="block"><span class="hint" style="color:var(--accent)">' + piccoletto_esc(p.error) + '</span></li>';
+  const busy_device = p.mode === 'device' && p.step === 'typing';
+  const busy_code = p.mode === 'code' && (p.code_step === 'showing' || p.code_step === 'chosen');
+  let rows = '<li class="block"><span style="display:flex;gap:6px">' +
+             '<button class="btn wide' + (p.mode === 'device' ? ' primary' : '') + '" data-act="pair_mode_device"' +
+             (busy_code ? ' disabled' : '') + '>Pair a device</button>' +
+             '<button class="btn wide' + (p.mode === 'code' ? ' primary' : '') + '" data-act="pair_mode_code"' +
+             (busy_device ? ' disabled' : '') + '>Generate pairing code</button></span></li>';
+  const error = p.error !== '' ? '<li class="block"><span class="hint" style="color:var(--accent)">' + piccoletto_esc(p.error) + '</span></li>' : '';
+  if (p.mode === 'device') {
+    if (p.step === 'done') {
+      return rows + piccoletto_pair_done(p);
     }
-    rows += '<li class="block"><button class="btn primary" data-act="pair_internet">Wait for the host</button>' +
-            '<span class="hint">One use. A wrong code gives a new one; after five it closes.</span></li>';
+    if (p.step === 'list' && p.found.length > 0) {
+      rows += '<li class="head">Discover devices</li>';
+      p.found.forEach(function (found, i) {
+        rows += '<li><span class="lamp on"></span><span class="name">' + piccoletto_esc(found.name) + '</span>' +
+                '<span class="size">' + piccoletto_esc(found.kind) + '</span>' +
+                '<span class="actions" style="visibility:visible"><button type="button" class="go" data-pairlan="' + i + '">Pair</button></span></li>';
+      });
+    }
+    const who = p.host !== '' ? p.host : 'the other device';
+    rows += '<li class="head">' + (p.step === 'typing' && !p.internet ? 'Type the code shown on ' + piccoletto_esc(who) : 'Enter a code') + '</li>' +
+            '<li class="block"><span style="display:flex;gap:4px"><input class="field" id="pair-code" inputmode="numeric" maxlength="9" ' +
+            'autocomplete="off" placeholder="9 digits"' + (p.checking ? ' disabled' : '') + '>' +
+            '<span class="actions" style="visibility:visible"><button type="button" class="go" data-act="pair_enter"' +
+            (p.checking || (p.step === 'typing' && !p.code_ready) ? ' disabled' : '') + '>Pair</button></span></span>';
+    if (p.wrong) {
+      rows += '<span class="hint" style="color:var(--accent)">Wrong code: type the new one.</span>';
+    }
+    if (p.step !== 'typing') {
+      rows += '<span class="hint">The code a piccolo shows in PAIR… &gt; GENERATE PAIRING CODE.</span>';
+    }
+    rows += '</li>';
+    if (p.step === 'typing' && (!p.code_ready || p.checking)) {
+      rows += '<li>' + piccoletto_wait_lights() + '<span class="name">Waiting for ' + piccoletto_esc(who) + '</span></li>';
+    }
+    rows += error;
+    if (p.step === 'typing') {
+      rows += '<li class="block"><button class="btn" data-act="pair_cancel">Cancel</button></li>';
+    }
+    return rows;
   }
-  return rows;
+  if (p.code_step === 'done') {
+    return rows + piccoletto_pair_done(p);
+  }
+  if (p.code_step === 'chosen') {
+    return rows + '<li><span class="lamp on"></span><span class="name">' + piccoletto_esc(p.done_name) + '</span>' +
+           '<span class="size">' + piccoletto_esc(p.done_kind) + '</span></li>' +
+           '<li class="block"><span class="hint">Typed your code.</span></li>' +
+           '<li>' + piccoletto_wait_lights() + '<span class="name">Waiting for ' + piccoletto_esc(p.done_name) + '</span></li>' +
+           '<li class="block"><button class="btn" data-act="pair_cancel">Cancel</button></li>';
+  }
+  if (p.code_step === 'starting') {
+    if (p.error !== '') {
+      return rows + error + '<li class="block"><button class="btn primary" data-act="pair_mode_code">Try again</button></li>';
+    }
+    return rows + '<li>' + piccoletto_wait_lights() + '<span class="name">Making a code</span></li>';
+  }
+  return rows + '<li class="head">Type this code on the other device</li><li class="block"><span class="bigcode">' +
+         piccoletto_esc(piccoletto_code_text(p.code)) + '</span>' +
+         '<span class="hint">On the piccolo: PAIR… &gt; PAIR A DEVICE &gt; ENTER A CODE. It works across the internet.</span>' +
+         '<span style="display:flex;gap:6px"><button class="btn wide" data-act="copy">Copy</button>' +
+         (navigator.share ? '<button class="btn wide" data-act="share">Send…</button>' : '') + '</span></li>' +
+         '<li>' + piccoletto_wait_lights() + '<span class="name">Waiting for the other device · 5 min</span></li>' +
+         '<li class="block"><button class="btn" data-act="pair_cancel">Cancel</button></li>';
 }
 
 // --- the quick menu ------------------------------------------------------------------
@@ -563,8 +627,8 @@ async function piccoletto_copy(text) {
 
 function piccoletto_code_message() {
   const code = piccoletto_shell.state.pair.code;
-  return 'piccoletto code: ' + code.slice(0, 3) + ' ' + code.slice(3, 6) + ' ' + code.slice(6) +
-         '. Type it on the piccolo in TOOLS > INVITE.';
+  return 'piccoletto pairing code: ' + piccoletto_code_text(code) +
+         '. Type it on the piccolo in PAIR… > PAIR A DEVICE > ENTER A CODE.';
 }
 
 function piccoletto_act(name) {
@@ -582,9 +646,20 @@ function piccoletto_act(name) {
     case 'headless_off': piccoletto_cmd(PICCOLETTO_CMD.headless, 0); break;
     case 'pause': piccoletto_cmd(PICCOLETTO_CMD.pause); break;
     case 'measure': piccoletto_cmd(PICCOLETTO_CMD.measure, s.selected); break;
-    case 'pair_internet': piccoletto_cmd(PICCOLETTO_CMD.pair_internet); break;
+    case 'pair_enter': {
+      const field = document.getElementById('pair-code');
+      const code = field !== null ? field.value.replace(/[^0-9]/g, '') : '';
+      if (code.length === 9) {
+        piccoletto_cmd(PICCOLETTO_CMD.pair_enter, 0, 0, code);
+        field.value = '';
+        field.blur();
+      }
+      break;
+    }
+    case 'pair_mode_device': piccoletto_cmd(PICCOLETTO_CMD.pair_mode, 0); break;
+    case 'pair_mode_code': piccoletto_cmd(PICCOLETTO_CMD.pair_mode, 1); break;
     case 'pair_cancel': piccoletto_cmd(PICCOLETTO_CMD.pair_cancel); break;
-    case 'pair_continue': piccoletto_cmd(PICCOLETTO_CMD.pair_continue); piccoletto_shell.pane_open = false; break;
+    case 'pair_done': piccoletto_cmd(PICCOLETTO_CMD.pair_done); piccoletto_shell.pane_open = false; break;
     case 'copy': piccoletto_copy(piccoletto_code_message()); break;
     case 'share': navigator.share({ text: piccoletto_code_message() }).catch(function () {}); break;
     case 'vibrate': piccoletto_cmd(PICCOLETTO_CMD.set_vibrate, s.settings.vibrate ? 0 : 1); break;

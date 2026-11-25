@@ -25,9 +25,9 @@ enum class WebCommand : int32_t
     go = 0,               // a: the screen (Screen: 0 home, 1 pair, 2 gamepad, 3 remote_play, 4 settings)
     select = 1,           // a: HOME's selected host (index in hosts.known)
     menu = 2,             // a: 1 opens the quick menu, 0 closes it
-    pair_internet = 3,    // PAIR's INTERNET: wait in the code's pairing room
+    pair_enter = 3,       // text: the code typed (PAIR A DEVICE; in a browser ENTER A CODE at once)
     pair_cancel = 4,      // PAIR's CANCEL
-    pair_continue = 5,    // PAIRED's CONTINUE: HOME with the new host
+    pair_done = 5,        // PAIRED's DONE: HOME with the new host
     forget = 6,           // a: the known host to forget
     measure = 7,          // a: the known host to speed-test
     set_name = 8,         // text: this device's name
@@ -40,7 +40,8 @@ enum class WebCommand : int32_t
     move_device = 15,     // a: index in the host's device list, b: the port (0-based; -1 = none)
     shader_answer = 16,   // a: 1 KEEP, 0 REVERT (the slow preset check)
     open_link = 17,       // text: a link (a guest link: straight into REMOTE PLAY)
-    pair_lan = 18,        // a: PAIR with the found host `a` on the LAN (not in a browser)
+    pair_lan = 18,        // a: PAIR with the found device `a` on the LAN, or ENTER A CODE (a = their count)
+    pair_mode = 19,       // a: 0 PAIR A DEVICE, 1 GENERATE PAIRING CODE (shows a code)
 };
 
 // The page pad's own buttons past the RetroPad's 16 (piccolo-pad.js: QUICK, MENU):

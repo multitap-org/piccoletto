@@ -4,12 +4,17 @@
 // frontends-common's frontend_net: this device's identity, the hosts it
 // paired with, LAN discovery, pairing and connecting.
 //
-// Pairing (Andrés, 2026-11-22): the phone shows a one-use 9-digit code
-// (net_pair_code_generate) and asks; the piccolo's user types it and picks
-// what the phone may do. On the LAN the piccolo is asked directly; across the
-// internet the phone waits in the code's pairing room on the beacon while the
-// piccolo's user types it in TOOLS > INVITE. A code typed wrong there gives a
-// new one here (hosts_pair_code).
+// Pairing (Andrés, 2026-11-25: the device asked has the code, because it
+// grants the permissions; pairing v3 page). PAIR A DEVICE: on the LAN the
+// phone asks a device it found (hosts_pair), the device pops its code up with
+// its PERMISSIONS ticked, and the phone's user types it (hosts_pair_enter);
+// ENTER A CODE types a code a device elsewhere shows (its GENERATE PAIRING
+// CODE) and meets it in the code's pairing room on the beacon
+// (hosts_pair_internet). GENERATE PAIRING CODE: the phone shows a code on the
+// beacon (hosts_show_code, a short-lived listener: frontends-common's
+// net_service) for a piccolo to type in its ENTER A CODE; that piccolo ticks
+// last. piccoletto offers nothing, so it never grants: it only shows what it
+// was given.
 // The connection runs on its own thread (net_client_service.h: polled every
 // millisecond; remote play's stream decoded there, its audio played there);
 // the app's loop drains what it reported (hosts_update), never blocks. Every
@@ -19,8 +24,10 @@
 // Android, not shared storage):
 //   net_identity.cfg  this phone's key (0600). Copying it makes another
 //                     device this phone; losing it means pairing again.
-//   net_hosts.cfg     the hosts paired with (net_trust: key, name)
-//   hosts.cfg         what we last saw of each (address, access level), by key
+//   net_devices.cfg   the devices paired with (net_trust: one record each, with
+//                     what each lets us use; net_hosts.cfg from before
+//                     2026-11-25 merges into it once)
+//   hosts.cfg         what we last saw of each (address, beacon, speed), by key
 //
 // While connected: the ping (ENet's round trip, jitter, loss), read every
 // 5 seconds; a speed test when a connection is made (rising rates, down then
@@ -48,8 +55,10 @@
 // (hosts_set_guest): not in `known`, never saved, met only through the
 // beacon; the throwaway key is net_client's.
 //
-// A discovered host is matched to a paired one by its last address: the
-// discovery reply has no key (a fingerprint in it would match after an
+// Discovery asks piccolo's and piccolino's ports; only devices offering
+// something the phone uses are listed for pairing (an old one, whose reply
+// says nothing about that, too). A discovered host is matched to a paired
+// one by its last address: the discovery reply has no key (a fingerprint in it would match after an
 // address change; to talk over with the netcode side). A host is "online"
 // while it keeps answering discovery.
 
@@ -66,6 +75,7 @@
 #include "net_guest.h"
 #include "net_host.h"
 #include "net_input.h"
+#include "net_service.h"
 #include "net_settings.h"   // NetDevice
 #include "net_speed.h"
 #include "screens.h"   // LinkShown
@@ -81,7 +91,9 @@ struct KnownHost
     NetAddress     address;                 // last seen on the LAN; port 0 = never
     std::string    beacon;                  // its beacon ("" = the default one), for internet connections
     bool           internet = false;        // paired or last connected across the internet
-    NetAccessLevel access = NetAccessLevel::gamepad;
+    NetAppKind     kind = NetAppKind::piccolo;
+    NetCaps        granted = 0;             // what it lets this phone use (its last word)
+    bool           signed_build = false;    // its build was signed when last met
     bool           online = false;          // answering discovery now
     uint32_t       down_kbps = 0;           // last speed test: what got through, host -> phone (0 = never measured)
     uint32_t       up_kbps = 0;             // phone -> host
@@ -123,6 +135,9 @@ struct FoundHost
 {
     NetAddress address;                     // where its ENet listens
     char       name[NET_DISCOVERY_MAX_NAME + 1] = {};
+    NetAppKind kind = NetAppKind::piccolo;
+    NetCaps    offers = 0;                  // what it can serve
+    bool       offers_known = false;        // an old device's reply doesn't say
     double     seen_at = 0.0;               // seconds
     int32_t    known = -1;                  // the paired host at that address, or -1
 };
@@ -130,9 +145,19 @@ struct FoundHost
 enum class PairStatus
 {
     idle,
-    busy,      // connecting / checking the code
+    busy,      // connecting, waiting for its code (`pair_code_needed`), checking the code
     paired,    // `paired_index` is the new host
     failed,    // `refusal` says why
+};
+
+// GENERATE PAIRING CODE (hosts_show_code).
+enum class CodeStatus
+{
+    idle,
+    showing,   // `code` is up, waiting for a device to type it
+    chosen,    // a device typed it: paired, waiting for what it grants (`code_host`)
+    paired,    // `code_granted` is what it lets us use
+    failed,    // `code_error` says why (timed out, no network)
 };
 
 enum class LinkStatus
@@ -159,6 +184,24 @@ struct Hosts
 
     PairStatus             pair = PairStatus::idle;
     int32_t                paired_index = -1;
+    bool                   pair_code_needed = false;   // the device popped its code up: type it
+    bool                   pair_retry = false;         // ... a new one: the last was wrong
+    NetDeviceInfo          pair_host;                  // what the device said about itself (name, kind)
+    bool                   pair_host_signed = false;
+    // GENERATE PAIRING CODE: a listener of our own while the code is up.
+    CodeStatus             code = CodeStatus::idle;
+    char                   code_digits[NET_PAIR_CODE_DIGITS + 1] = {};
+    std::string            code_host;           // the device that typed it
+    uint8_t                code_key[NET_KEY_SIZE] = {};   // ... its key (to find it in `known`)
+    NetAppKind             code_kind = NetAppKind::piccolo;
+    NetCaps                code_granted = 0;
+    const char*            code_error = "";
+    bool                   code_running = false;   // `code_service` runs
+    NetService             code_service;
+    std::string            identity_path;       // net_identity.cfg (the listener loads the key itself)
+    std::string            trust_path;          // net_devices.cfg
+    NetDeviceInfo          device_info;         // this phone (hosts_create)
+    uint32_t               known_generation = 0;   // the device file's generation `known` was built from
     LinkStatus             link = LinkStatus::idle;
     int32_t                linked = -1;         // the known host connecting / connected
     NetAddress             connecting_to;       // the address of the connection running (kept when it's ready)
@@ -187,11 +230,11 @@ struct Hosts
     // hidden (headless_state). Ends with the stream or the connection.
     bool                   headless_on = false;      // the host runs headless
     bool                   headless_yours = false;   // ... for this phone
-    // PAUSE (STREAM access, a game running): the host's "pause" action, from
+    // PAUSE (REMOTE PLAY granted, a game running): the host's "pause" action, from
     // its action list (sent when connected and whenever it changes).
     bool                   pause_offered = false;
     uint32_t               pause_causes = 0;         // NET_PAUSE_* (net_settings.h): USER is the toggle
-    // DEVICES (FULL access): who plays on the host's ports. Asked for once
+    // DEVICES (SETTINGS granted): who plays on the host's ports. Asked for once
     // (hosts_request_devices); the host sends the list again whenever it changes.
     bool                   devices_wanted = false;
     bool                   devices_known = false;
@@ -204,16 +247,17 @@ struct Hosts
     bool                   refusal_still_known = false;   // pairing failed because the host still lists this phone
     // Guest links.
     bool                   has_guest = false;   // a guest link is set (hosts_set_guest)
-    KnownHost              guest_host;          // its host, as the screens see it (access: STREAM)
+    KnownHost              guest_host;          // its host, as the screens see it (GAMEPAD, REMOTE PLAY)
     NetGuestLink           guest_link;
     std::string            guest_beacon;        // the link's beacon ("" = the default)
     NetGuestLevel          guest_level = NetGuestLevel::watch;   // what the host gives us now
     uint8_t                guest_port = NET_GUEST_NO_PORT;       // the port our pad plays on there
 };
 
-// `settings_dir`: where the files above go. False (and networking off, the
-// app runs on) when there's no identity or no socket.
-bool hosts_create(Hosts* hosts, const char* settings_dir, const char* phone_name);
+// `settings_dir`: where the files above go; `info`: this phone (its name,
+// kind, what it uses, its build proof). False (and networking off, the app
+// runs on) when there's no identity or no socket.
+bool hosts_create(Hosts* hosts, const char* settings_dir, const NetDeviceInfo* info);
 void hosts_destroy(Hosts* hosts);
 
 // Once per frame: discovery every few seconds, the client's events.
@@ -222,22 +266,29 @@ void hosts_update(Hosts* hosts, double now);
 // This phone's name, sent to the hosts at every connection.
 void hosts_set_name(Hosts* hosts, const char* phone_name);
 
-// Unpaired hosts found on the network, in order: the i-th one.
+// Unpaired devices found on the network that offer something this phone
+// uses, in order: the i-th one.
 int32_t hosts_unpaired_count(const Hosts* hosts);
 const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index);
 
-// Asks the host at `address` to pair, with `code` (ours, 9 digits: its user
-// types it). Progress in hosts->pair. False if it can't start (another
-// connection is running).
-bool hosts_pair(Hosts* hosts, NetAddress address, const char* code);
-// Across the internet: waits with `code` in its pairing room on `beacon`
-// ("" = the default) until a piccolo's user types it in TOOLS > INVITE.
+// PAIR A DEVICE on the LAN: asks the device at `address` to pair; it pops its
+// code up (hosts->pair_code_needed) for hosts_pair_enter. Progress in
+// hosts->pair. False if it can't start (another connection is running).
+bool hosts_pair(Hosts* hosts, NetAddress address);
+// The code the user typed (9 digits), once the device showed it. False if
+// nothing waits for one.
+bool hosts_pair_enter(Hosts* hosts, const char* code);
+// ENTER A CODE: the code a device elsewhere shows (GENERATE PAIRING CODE
+// there), met in its pairing room on `beacon` ("" = the default). A wrong code
+// sets pair_code_needed with pair_retry (type it again).
 bool hosts_pair_internet(Hosts* hosts, const char* code, const char* beacon);
-// The code to show while pairing (a new one after the host typed it wrong).
-// False when no pairing runs.
-bool hosts_pair_code(Hosts* hosts, char* code);
-// The host has our request: its user hasn't typed the code yet (WAITING).
-bool hosts_pair_waiting(Hosts* hosts);
+// The code typed is being checked (WAITING FOR <NAME>).
+bool hosts_pair_checking(Hosts* hosts);
+// GENERATE PAIRING CODE: shows a new code on `beacon` ("" = the default) for
+// 5 minutes (hosts->code, hosts->code_digits). False if networking is off.
+// hosts_end_code takes it down (CANCEL, leaving PAIR, DONE).
+bool hosts_show_code(Hosts* hosts, const char* beacon);
+void hosts_end_code(Hosts* hosts);
 // A link that names a host and its beacon (net_pair_link.h; the Android
 // intent, the browser's '#'): not used for pairing since 2026-11-22, kept for
 // the links to come (a game to join). Its beacon ("" = the default), the one
@@ -300,13 +351,13 @@ void hosts_stream_stats(Hosts* hosts, NetClientStreamStats* stats);
 int32_t hosts_game_running(const Hosts* hosts);
 
 // PAUSE: false when the connected host doesn't offer it to this phone (no
-// game, below STREAM, not connected). Else why its game is paused
+// game, no REMOTE PLAY there, not connected). Else why its game is paused
 // (NET_PAUSE_* bits, 0 = it runs): USER is the one hosts_toggle_pause sets
 // and lifts; the others (a window open there, its focus...) only it lifts.
 bool hosts_pause(const Hosts* hosts, uint32_t* causes);
 void hosts_toggle_pause(Hosts* hosts);
 
-// DEVICES: ask the connected host who plays on its ports (FULL access; also
+// DEVICES: ask the connected host who plays on its ports (SETTINGS granted; also
 // after reconnecting). The list is in hosts->devices once devices_known.
 void hosts_request_devices(Hosts* hosts);
 // Puts a device of the list on `port` (0..3) only; -1 = on none (it joins
@@ -320,7 +371,7 @@ void hosts_go_headless(Hosts* hosts, bool on);
 // Whether REMOTE PLAY's stream is running now (asked for and connected).
 bool hosts_streaming(const Hosts* hosts);
 
-// PAIR's progress line: still connecting (true), or the host has our request.
+// PAIR's progress line: still connecting (true), or the device answered.
 bool hosts_pair_connecting(Hosts* hosts);
 
 // The pads' status: offline, connecting, or ready with the last ping and loss.

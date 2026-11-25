@@ -44,7 +44,7 @@ static bool same_address(NetAddress a, NetAddress b)
     return net_address_equal(a, b);   // (IPv4 or IPv6)
 }
 
-// What hosts.cfg says about a host (address, access level).
+// What hosts.cfg says about a host (address, beacon, speed).
 static void read_info(const Hosts* hosts, KnownHost* host)
 {
     std::string section = key_section(host->key);
@@ -58,11 +58,6 @@ static void read_info(const Hosts* hosts, KnownHost* host)
         {
             host->address = parsed;
         }
-    }
-    const char* access = settings_file_get(&hosts->info, section.c_str(), "access");
-    if (access != nullptr)
-    {
-        net_access_level_parse(access, &host->access);
     }
     const char* beacon = settings_file_get(&hosts->info, section.c_str(), "beacon");
     host->beacon = beacon != nullptr ? beacon : "";
@@ -92,7 +87,7 @@ static void write_info(Hosts* hosts, const KnownHost* host)
         settings_file_set(&hosts->info, section.c_str(), "address", address);
         settings_file_set(&hosts->info, section.c_str(), "port", port);
     }
-    settings_file_set(&hosts->info, section.c_str(), "access", net_access_level_name(host->access));
+    settings_file_remove(&hosts->info, section.c_str(), "access");   // (before 2026-11-25: in net_devices.cfg now)
     settings_file_set(&hosts->info, section.c_str(), "beacon", host->beacon.c_str());
     settings_file_set(&hosts->info, section.c_str(), "internet", host->internet ? "true" : "false");
     if (host->down_kbps > 0 || host->up_kbps > 0)
@@ -103,7 +98,7 @@ static void write_info(Hosts* hosts, const KnownHost* host)
         std::snprintf(kbps, sizeof(kbps), "%u", static_cast<unsigned>(host->up_kbps));
         settings_file_set(&hosts->info, section.c_str(), "up_kbps", kbps);
     }
-    settings_file_save(&hosts->info, hosts->info_path.c_str(), "piccoletto's paired hosts: last address and access level");
+    settings_file_save(&hosts->info, hosts->info_path.c_str(), "piccoletto's paired hosts: last address, beacon and speed");
 }
 
 // The known list from the client's trusted hosts (after loading, pairing, forgetting).
@@ -116,16 +111,28 @@ static void rebuild_known(Hosts* hosts)
         KnownHost host;
         std::memcpy(host.key, device->key, NET_KEY_SIZE);
         host.name = device->name;
+        host.kind = device->kind;
+        host.granted = device->granted;
+        host.signed_build = device->signed_build;
         read_info(hosts, &host);
+        // Before 2026-11-25 hosts.cfg kept the host's access level: what it
+        // covered, until the host's next welcome says.
+        const char* access = settings_file_get(&hosts->info, key_section(device->key).c_str(), "access");
+        NetCaps old = 0;
+        if (host.granted == 0 && access != nullptr && net_caps_from_level(access, &old))
+        {
+            host.granted = old;
+        }
         hosts->known.push_back(host);
     }
+    hosts->known_generation = hosts->net.client.trust_generation;
     for (int32_t i = 0; i < hosts->found_count; i++)
     {
         hosts->found[i].known = -1;
     }
 }
 
-bool hosts_create(Hosts* hosts, const char* settings_dir, const char* phone_name)
+bool hosts_create(Hosts* hosts, const char* settings_dir, const NetDeviceInfo* info)
 {
     std::string dir = settings_dir;
     hosts->info_path = dir + "/hosts.cfg";
@@ -144,8 +151,18 @@ bool hosts_create(Hosts* hosts, const char* settings_dir, const char* phone_name
         net_shutdown();
         return false;
     }
-    std::string trust_path = dir + "/net_hosts.cfg";
-    bool created = net_client_service_start(&hosts->net, &identity, phone_name, trust_path.c_str());
+    hosts->identity_path = identity_path;
+    hosts->trust_path = dir + "/net_devices.cfg";
+    hosts->device_info = *info;
+    // Before 2026-11-25 the hosts had a list of their own: it joins the
+    // paired devices once (one record per device).
+    std::string old_hosts = dir + "/net_hosts.cfg";
+    NetTrust trust;
+    net_trust_file_lock();
+    net_trust_load(&trust, hosts->trust_path.c_str());
+    net_trust_merge_old_hosts(&trust, hosts->trust_path.c_str(), old_hosts.c_str());
+    net_trust_file_unlock();
+    bool created = net_client_service_start(&hosts->net, &identity, info, hosts->trust_path.c_str());
     net_keypair_wipe(&identity);
     if (!created)
     {
@@ -181,6 +198,7 @@ void hosts_destroy(Hosts* hosts)
     {
         return;
     }
+    hosts_end_code(hosts);
     net_client_service_lock(&hosts->net);
     net_client_close(&hosts->net.client);
     net_client_service_unlock(&hosts->net);
@@ -203,8 +221,11 @@ void hosts_set_name(Hosts* hosts, const char* phone_name)
     // As net_client_create keeps it: cut the way the messages carry it.
     uint8_t bytes[NET_DEVICE_NAME_MAX];
     size_t size = net_pair_name_bytes(phone_name, bytes);
+    std::memset(hosts->device_info.name, 0, sizeof(hosts->device_info.name));
+    std::memcpy(hosts->device_info.name, bytes, size);
     net_client_service_lock(&hosts->net);
     hosts->net.client.name.assign(reinterpret_cast<const char*>(bytes), size);
+    std::memcpy(hosts->net.client.info.name, hosts->device_info.name, sizeof(hosts->device_info.name));
     net_client_service_unlock(&hosts->net);
 }
 
@@ -234,6 +255,10 @@ static void on_discovered(Hosts* hosts, const NetEvent* event, double now)
         found->address = address;
     }
     std::snprintf(found->name, sizeof(found->name), "%s", event->discovered.name);
+    found->offers_known = event->discovered.version >= 2;
+    found->offers = event->discovered.offers;
+    NetAppKind kind = NetAppKind::piccolo;
+    found->kind = event->discovered.kind < NET_APP_KIND_COUNT ? static_cast<NetAppKind>(event->discovered.kind) : kind;
     found->seen_at = now;
     found->known = -1;
     for (size_t i = 0; i < hosts->known.size(); i++)
@@ -254,7 +279,7 @@ static void discover(Hosts* hosts, double now)
     if (now >= hosts->next_discovery)
     {
         hosts->next_discovery = now + DISCOVERY_SECONDS;
-        net_host_discover(&hosts->discovery, NET_DEFAULT_PORT);
+        net_host_discover_devices(&hosts->discovery);   // piccolo's port and piccolino's
         for (size_t i = 0; i < hosts->known.size(); i++)
         {
             if (hosts->known[i].address.port != 0)
@@ -327,7 +352,9 @@ static void on_ready(Hosts* hosts, const NetClientEvent* event, NetAddress addre
     {
         host->beacon = hosts->pair_beacon;
     }
-    host->access = event->access;
+    host->granted = event->caps;
+    host->kind = event->host.kind;
+    host->signed_build = event->host_signed;
     write_info(hosts, host);
     // Pairing with a host that already knows us (and we it): it welcomes us
     // without asking for the code. Paired all the same.
@@ -342,11 +369,49 @@ static void on_ready(Hosts* hosts, const NetClientEvent* event, NetAddress addre
     }
     hosts->link = LinkStatus::ready;
     hosts->linked = event->device;
-    SDL_Log("Network: connected to %s (%s)", host->name.c_str(), net_access_level_name(host->access));
+    SDL_Log("Network: connected to %s (may use: %s)", host->name.c_str(), net_caps_name(host->granted).c_str());
 }
 
 // Drops a host from what hosts.cfg keeps and rebuilds the list (after the
 // client's trust list lost it: net_client_unpair, or the host unpaired us).
+// After the device file changed: the same devices in the same order get
+// their names and grants refreshed in place (what only this run knows, as
+// `measured` and `online`, stays); otherwise the list is built again (when
+// `may_rebuild`: nothing holds an index into it).
+static void refresh_known(Hosts* hosts, bool may_rebuild)
+{
+    const std::vector<NetTrustedDevice>* devices = &hosts->net.client.trust.devices;
+    bool same = devices->size() == hosts->known.size();
+    for (size_t i = 0; same && i < devices->size(); i++)
+    {
+        same = std::memcmp((*devices)[i].key, hosts->known[i].key, NET_KEY_SIZE) == 0;
+    }
+    if (!same && !may_rebuild)
+    {
+        return;   // later
+    }
+    if (!same)
+    {
+        rebuild_known(hosts);
+        return;
+    }
+    for (size_t i = 0; i < devices->size(); i++)
+    {
+        const NetTrustedDevice* device = &(*devices)[i];
+        KnownHost* host = &hosts->known[i];
+        host->name = device->name;
+        host->kind = device->kind;
+        host->signed_build = device->signed_build;
+        // (Nothing in the record yet, and an old hosts.cfg level: that stands in.)
+        bool old_level = settings_file_get(&hosts->info, key_section(device->key).c_str(), "access") != nullptr;
+        if (device->granted != 0 || !old_level)
+        {
+            host->granted = device->granted;
+        }
+    }
+    hosts->known_generation = hosts->net.client.trust_generation;
+}
+
 static void forget_info(Hosts* hosts, const uint8_t* key)
 {
     std::string section = key_section(key);
@@ -355,7 +420,7 @@ static void forget_info(Hosts* hosts, const uint8_t* key)
     {
         settings_file_remove(&hosts->info, section.c_str(), KEYS[i]);
     }
-    settings_file_save(&hosts->info, hosts->info_path.c_str(), "piccoletto's paired hosts: last address and access level");
+    settings_file_save(&hosts->info, hosts->info_path.c_str(), "piccoletto's paired hosts: last address, beacon and speed");
 }
 
 static void forget_here(Hosts* hosts, int32_t index)
@@ -653,8 +718,8 @@ static void on_message(Hosts* hosts, const NetClientEvent* event)
     }
 }
 
-// The host's devices list (under the lock): devices_request with FULL access
-// (DEVICES moves them), devices_watch below it (the ports' tabs, read only).
+// The host's devices list (under the lock): devices_request with SETTINGS
+// granted (DEVICES moves them), devices_watch without (the ports' tabs, read only).
 static void send_devices_request(Hosts* hosts)
 {
     if (!hosts->devices_wanted || hosts->link != LinkStatus::ready || hosts->linked < 0 ||
@@ -662,7 +727,7 @@ static void send_devices_request(Hosts* hosts)
     {
         return;   // a guest has no DEVICES
     }
-    bool full = net_access_allows(hosts->known[static_cast<size_t>(hosts->linked)].access, NetAccessLevel::full);
+    bool full = (hosts->known[static_cast<size_t>(hosts->linked)].granted & NET_CAP_SETTINGS) != 0;
     uint8_t message[16];
     size_t size = full ? net_settings_write_devices_request(message, sizeof(message), hosts->next_request++)
                        : net_settings_write_devices_watch(message, sizeof(message), hosts->next_request++);
@@ -814,7 +879,7 @@ static bool start_connect(Hosts* hosts, int32_t index)
     if (hosts->lan && host->address.port != 0 && (host->online || !host->internet) && !hosts->lan_failed)
     {
         hosts->connecting_to = host->address;
-        return net_client_connect(&hosts->net.client, host->address, nullptr);
+        return net_client_connect(&hosts->net.client, host->address, false);
     }
     hosts->connecting_to = NetAddress{};
     use_beacon(hosts, host->beacon);
@@ -916,7 +981,7 @@ static void update_locked(Hosts* hosts, double now)
             hosts->refusal = NetClientRefusal::not_paired;
             break;
         }
-        case NetClientEventType::access:
+        case NetClientEventType::caps:
             if (event.guest)
             {
                 hosts->guest_level = event.guest_level;
@@ -928,13 +993,12 @@ static void update_locked(Hosts* hosts, double now)
             {
                 KnownHost* host = &hosts->known[static_cast<size_t>(hosts->linked)];
                 // Told live (and in the welcome when it changed offline). The
-                // UI reads host->access each frame; the host already stopped
-                // what the new level doesn't allow (the stream, headless).
-                SDL_Log("Network: %s set this phone to %s", host->name.c_str(), net_access_level_name(event.access));
-                host->access = event.access;
-                write_info(hosts, host);
-                // Raised to FULL with DEVICES wanted: ask now; lowered: the list goes.
-                if (net_access_allows(event.access, NetAccessLevel::full))
+                // UI reads host->granted each frame; the host already stopped
+                // what it no longer lets us use (the stream, headless).
+                SDL_Log("Network: %s lets this phone use: %s", host->name.c_str(), net_caps_name(event.caps).c_str());
+                host->granted = event.caps;
+                // SETTINGS granted with DEVICES wanted: ask now; taken away: the list goes.
+                if ((event.caps & NET_CAP_SETTINGS) != 0)
                 {
                     send_devices_request(hosts);
                 }
@@ -991,10 +1055,14 @@ static void update_locked(Hosts* hosts, double now)
                 hosts->measure_only = false;
             }
             break;
-        case NetClientEventType::code_changed:
-            // The host's user typed our code wrong: PAIR shows the new one
-            // (hosts_pair_code) and the host's dialog asks again.
-            SDL_Log("Network: the code was typed wrong there: a new one");
+        case NetClientEventType::code_needed:
+            // The device popped its code up (a new one after a wrong try):
+            // PAIR asks for it (hosts_pair_enter).
+            hosts->pair_code_needed = true;
+            hosts->pair_retry = event.retry;
+            hosts->pair_host = event.host;
+            hosts->pair_host_signed = event.host_signed;
+            SDL_Log("Network: %s shows a code%s", event.host.name, event.retry ? " (the last one was wrong)" : "");
             break;
         case NetClientEventType::closed:
             hosts->speed.running = false;
@@ -1022,6 +1090,13 @@ static void update_locked(Hosts* hosts, double now)
             break;
         }
     }
+    // The device file changed (a save of ours, or GENERATE PAIRING CODE's
+    // listener paired a device): what each says is refreshed; a device more
+    // or less rebuilds the list, when nothing holds an index into it.
+    if (hosts->known_generation != hosts->net.client.trust_generation && hosts->pending_unpair < 0)
+    {
+        refresh_known(hosts, !client_busy(hosts));
+    }
     if (hosts->connect_pending && !client_busy(hosts))
     {
         hosts->connect_pending = false;
@@ -1045,6 +1120,133 @@ static void update_locked(Hosts* hosts, double now)
     speed_update(hosts);
 }
 
+// GENERATE PAIRING CODE's listener: what happened to the code shown. A
+// device that typed it is paired (saved by the listener in the shared device
+// file; `known` follows); what it lets us use comes once its user ticked
+// (its DONE), and the listener stops then. A device asking without our code
+// (a LAN request) is refused: piccoletto offers nothing to grant.
+static void code_update(Hosts* hosts)
+{
+    if (!hosts->code_running)
+    {
+        return;
+    }
+    bool done = false;
+    NetAccessEvent event;
+    while (net_service_next(&hosts->code_service, &event))
+    {
+        switch (event.type)
+        {
+        case NetAccessEventType::paired:
+            hosts->code = CodeStatus::chosen;
+            hosts->code_host = event.info.name;
+            hosts->code_kind = event.info.kind;
+            net_service_lock(&hosts->code_service);
+            if (event.device >= 0 &&
+                static_cast<size_t>(event.device) < hosts->code_service.access.trust.devices.size())
+            {
+                std::memcpy(hosts->code_key, hosts->code_service.access.trust.devices[static_cast<size_t>(event.device)].key,
+                            NET_KEY_SIZE);
+            }
+            net_service_unlock(&hosts->code_service);
+            SDL_Log("Network: %s typed our code: paired", event.info.name);
+            break;
+        case NetAccessEventType::granted:
+            hosts->code_granted = event.caps;
+            if (hosts->code == CodeStatus::chosen)
+            {
+                hosts->code = CodeStatus::paired;
+                done = true;
+            }
+            SDL_Log("Network: it lets this phone use: %s", net_caps_name(event.caps).c_str());
+            break;
+        case NetAccessEventType::closed:
+            if (hosts->code == CodeStatus::chosen)
+            {
+                hosts->code = CodeStatus::paired;   // gone before it said: nothing granted yet
+                done = true;
+            }
+            break;
+        case NetAccessEventType::code_expired:
+            hosts->code = CodeStatus::failed;
+            hosts->code_error = "THE CODE TIMED OUT";
+            done = true;
+            break;
+        case NetAccessEventType::pairing_requested:
+            net_service_lock(&hosts->code_service);
+            net_access_refuse_pairing(&hosts->code_service.access, event.peer);
+            net_service_unlock(&hosts->code_service);
+            break;
+        default:
+            break;
+        }
+    }
+    if (done)
+    {
+        net_service_stop(&hosts->code_service);
+        hosts->code_running = false;
+    }
+}
+
+bool hosts_show_code(Hosts* hosts, const char* beacon)
+{
+    if (!hosts->ok)
+    {
+        return false;
+    }
+    hosts_end_code(hosts);
+    hosts->code = CodeStatus::failed;
+    hosts->code_error = "NO NETWORK";
+    hosts->code_host.clear();
+    hosts->code_granted = 0;
+    std::memset(hosts->code_key, 0, sizeof(hosts->code_key));
+    NetKeypair identity;
+    if (!net_identity_load_or_create(hosts->identity_path.c_str(), &identity))
+    {
+        return false;
+    }
+    // Any free port: nobody finds piccoletto on the LAN (it offers nothing);
+    // the code's room on the beacon is how a device reaches it.
+    hosts->code_service.access = NetAccess{};
+    bool started = net_service_start(&hosts->code_service, 0, &hosts->device_info, &identity, hosts->trust_path.c_str());
+    net_keypair_wipe(&identity);
+    if (!started)
+    {
+        net_service_stop(&hosts->code_service);
+        return false;
+    }
+    hosts->code_running = true;
+    const char* server = beacon != nullptr && beacon[0] != '\0' ? beacon : NET_BEACON_DEFAULT_SERVER;
+    net_service_set_beacon(&hosts->code_service, server);
+    net_service_lock(&hosts->code_service);
+    bool shown = net_access_show_code(&hosts->code_service.access, 0, hosts->code_digits);
+    net_service_unlock(&hosts->code_service);
+    if (!shown)
+    {
+        hosts_end_code(hosts);
+        hosts->code = CodeStatus::failed;
+        return false;
+    }
+    hosts->code = CodeStatus::showing;
+    hosts->code_error = "";
+    SDL_Log("Network: showing a pairing code on %s", server);
+    return true;
+}
+
+void hosts_end_code(Hosts* hosts)
+{
+    if (hosts->code_running)
+    {
+        net_service_lock(&hosts->code_service);
+        net_access_end_code(&hosts->code_service.access);
+        net_service_unlock(&hosts->code_service);
+        net_service_stop(&hosts->code_service);
+        hosts->code_running = false;
+    }
+    std::memset(hosts->code_digits, 0, sizeof(hosts->code_digits));
+    hosts->code = CodeStatus::idle;
+}
+
 void hosts_update(Hosts* hosts, double now)
 {
     if (!hosts->ok)
@@ -1054,6 +1256,14 @@ void hosts_update(Hosts* hosts, double now)
     net_client_service_lock(&hosts->net);
     update_locked(hosts, now);
     net_client_service_unlock(&hosts->net);
+    code_update(hosts);
+}
+
+// Found, not paired, and offering something this phone uses (an old device
+// that doesn't say what it offers is listed too).
+static bool pairable(const Hosts* hosts, const FoundHost* found)
+{
+    return found->known < 0 && (!found->offers_known || (found->offers & hosts->device_info.uses) != 0);
 }
 
 int32_t hosts_unpaired_count(const Hosts* hosts)
@@ -1061,7 +1271,7 @@ int32_t hosts_unpaired_count(const Hosts* hosts)
     int32_t count = 0;
     for (int32_t i = 0; i < hosts->found_count; i++)
     {
-        count += hosts->found[i].known < 0 ? 1 : 0;
+        count += pairable(hosts, &hosts->found[i]) ? 1 : 0;
     }
     return count;
 }
@@ -1070,7 +1280,7 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index)
 {
     for (int32_t i = 0; i < hosts->found_count; i++)
     {
-        if (hosts->found[i].known >= 0)
+        if (!pairable(hosts, &hosts->found[i]))
         {
             continue;
         }
@@ -1083,13 +1293,15 @@ const FoundHost* hosts_unpaired(const Hosts* hosts, int32_t index)
     return nullptr;
 }
 
-// A pairing started: PAIR follows it in hosts->pair. The phone asks as a
-// piccoletto (the host shows it) for GAMEPAD; the host's user decides
-// (Andrés, 2026-11-22: net_client_set_pairing before each start).
+// A pairing started: PAIR follows it in hosts->pair.
 static void start_pairing(Hosts* hosts)
 {
     hosts->pair = PairStatus::busy;
     hosts->paired_index = -1;
+    hosts->pair_code_needed = false;
+    hosts->pair_retry = false;
+    hosts->pair_host = NetDeviceInfo{};
+    hosts->pair_host_signed = false;
     hosts->refusal = NetClientRefusal::none;
     hosts->refusal_still_known = false;
 }
@@ -1102,7 +1314,6 @@ static bool pair_internet_locked(Hosts* hosts, const char* code, const char* bea
     }
     std::string name = beacon != nullptr ? beacon : "";
     use_beacon(hosts, name);
-    net_client_set_pairing(&hosts->net.client, NetAccessLevel::gamepad, NetPairKind::piccoletto);
     if (hosts->lan)
     {
         // Its addresses first (hosts_update pairs once they're found).
@@ -1129,20 +1340,30 @@ bool hosts_link_beacon(const char* text, std::string* beacon)
     return text != nullptr && std::strchr(text, '#') != nullptr && net_pair_link_parse(text, key, beacon);
 }
 
-static bool pair_locked(Hosts* hosts, NetAddress address, const char* code)
+static bool pair_locked(Hosts* hosts, NetAddress address)
 {
-    if (!hosts->ok || client_busy(hosts) || code == nullptr || !net_pair_code_valid(code))
+    if (!hosts->ok || client_busy(hosts))
     {
         return false;
     }
-    net_client_set_pairing(&hosts->net.client, NetAccessLevel::gamepad, NetPairKind::piccoletto);
-    if (!net_client_connect(&hosts->net.client, address, code))
+    if (!net_client_connect(&hosts->net.client, address, true))
     {
         return false;
     }
     start_pairing(hosts);
     hosts->connecting_to = address;
     hosts->pair_beacon.clear();
+    return true;
+}
+
+static bool pair_enter_locked(Hosts* hosts, const char* code)
+{
+    if (hosts->pair != PairStatus::busy || !hosts->pair_code_needed || code == nullptr ||
+        !net_client_enter_code(&hosts->net.client, code))
+    {
+        return false;
+    }
+    hosts->pair_code_needed = false;
     return true;
 }
 
@@ -1206,6 +1427,7 @@ void hosts_cancel(Hosts* hosts)
 {
     hosts_disconnect(hosts);
     hosts->pair = PairStatus::idle;
+    hosts->pair_code_needed = false;
 }
 
 static void forget_locked(Hosts* hosts, int32_t index)
@@ -1229,7 +1451,7 @@ static void forget_locked(Hosts* hosts, int32_t index)
     // Reachable: connect to tell it (hosts_update finishes it); else only here.
     const KnownHost* host = &hosts->known[static_cast<size_t>(index)];
     if (host->online && host->address.port != 0 && hosts->net.client.state == NetClientState::idle &&
-        net_client_connect(&hosts->net.client, host->address, nullptr))
+        net_client_connect(&hosts->net.client, host->address, false))
     {
         hosts->pending_unpair = index;
         hosts->connecting_to = host->address;
@@ -1299,12 +1521,20 @@ static void send_pad_locked(Hosts* hosts, const RetroPad* pad)
 
 // The public ones: the connection's lock around the work.
 
-bool hosts_pair(Hosts* hosts, NetAddress address, const char* code)
+bool hosts_pair(Hosts* hosts, NetAddress address)
 {
     net_client_service_lock(&hosts->net);
-    bool started = pair_locked(hosts, address, code);
+    bool started = pair_locked(hosts, address);
     net_client_service_unlock(&hosts->net);
     return started;
+}
+
+bool hosts_pair_enter(Hosts* hosts, const char* code)
+{
+    net_client_service_lock(&hosts->net);
+    bool entered = pair_enter_locked(hosts, code);
+    net_client_service_unlock(&hosts->net);
+    return entered;
 }
 
 bool hosts_pair_internet(Hosts* hosts, const char* code, const char* beacon)
@@ -1315,26 +1545,15 @@ bool hosts_pair_internet(Hosts* hosts, const char* code, const char* beacon)
     return started;
 }
 
-bool hosts_pair_code(Hosts* hosts, char* code)
-{
-    net_client_service_lock(&hosts->net);
-    bool has = hosts->pair == PairStatus::busy && hosts->net.client.has_code;
-    if (has)
-    {
-        std::memcpy(code, hosts->net.client.code, NET_PAIR_CODE_DIGITS + 1);
-    }
-    net_client_service_unlock(&hosts->net);
-    return has;
-}
-
-bool hosts_pair_waiting(Hosts* hosts)
+bool hosts_pair_checking(Hosts* hosts)
 {
     net_client_service_lock(&hosts->net);
     NetClientState state = hosts->net.client.state;
-    bool waiting = hosts->pair == PairStatus::busy &&
-                   (state == NetClientState::pairing || state == NetClientState::confirming);
+    bool checking = hosts->pair == PairStatus::busy && !hosts->pair_code_needed &&
+                    (state == NetClientState::pairing || state == NetClientState::confirming ||
+                     state == NetClientState::meeting || (hosts->net.client.has_code && state != NetClientState::idle));
     net_client_service_unlock(&hosts->net);
-    return waiting;
+    return checking;
 }
 
 bool hosts_connect(Hosts* hosts, int32_t index)
@@ -1656,7 +1875,7 @@ bool hosts_set_guest(Hosts* hosts, const char* text)
     hosts->guest_host = KnownHost{};
     hosts->guest_host.name = "GUEST";
     hosts->guest_host.internet = true;
-    hosts->guest_host.access = NetAccessLevel::stream;   // remote play, never more
+    hosts->guest_host.granted = NET_CAP_GAMEPAD | NET_CAP_STREAM;   // remote play, never more
     hosts->guest_host.beacon = hosts->guest_beacon;
     hosts->guest_level = NetGuestLevel::watch;
     hosts->guest_port = NET_GUEST_NO_PORT;
