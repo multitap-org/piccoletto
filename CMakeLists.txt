@@ -73,7 +73,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 foreach(_dep imgui/imgui.cpp libsamplerate/src/samplerate.c gamemode/lib/gamemode_client.h enet/include/enet.h
              beacon/wire/beacon_wire.cpp
              monocypher/src/monocypher.c librashader/include/librashader.h piccolo-shaders/README.md
-             common/hosts-common/CMakeLists.txt common/frontends-common/CMakeLists.txt
+             common/hosts-common/CMakeLists.txt common/multitap-net/CMakeLists.txt common/frontends-common/CMakeLists.txt
              common/retroui/CMakeLists.txt)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/${_dep}")
         message(FATAL_ERROR "deps/${_dep} is missing. Run: git submodule update --init --recursive")
@@ -146,6 +146,8 @@ endif()
 # ---------------------------------------------------------------------------
 set(MULTITAP_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps")
 add_subdirectory(deps/common/hosts-common)
+# The network core (no GUI), before frontends-common: its frontend_net builds on it.
+add_subdirectory(deps/common/multitap-net)
 add_subdirectory(deps/common/frontends-common)
 add_subdirectory(deps/common/retroui)
 
@@ -206,7 +208,7 @@ if(EMSCRIPTEN)
     # The browser build (web/build.sh): piccoletto.js + piccoletto.wasm, the
     # same recipe as piccolo's (its CMakeLists.txt, docs/wasm.md). WebGL 2;
     # threads (net_client_service's thread; WebRTC itself lives on the page's
-    # main thread, frontends-common's net_webrtc.js, linked by frontend_net);
+    # main thread, multitap-net's net_webrtc.js, linked by multitap_net);
     # fixed memory (growing it with threads makes every JS access slow).
     # WasmFS in memory: piccoletto's folder is kept on OPFS by the page
     # (frontends-common's app_storage, web/multitap-storage.js). REMOTE PLAY's
@@ -256,7 +258,7 @@ if(NOT ANDROID AND NOT EMSCRIPTEN)
 endif()
 
 # Linux only: it runs a beacon in the process (beacon_core), and
-# frontends-common builds the beacon's server code only there (like its own
+# multitap-net builds the beacon's server code only there (like its own
 # net_beacon test).
 if(MULTITAP_BUILD_TESTS AND NOT EMSCRIPTEN AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # src/hosts.* against a host in the same process over loopback (pairing,

@@ -95,7 +95,7 @@ src_dir=$(pwd)
 submodules="deps/SDL deps/imgui deps/libsamplerate deps/gamemode
     deps/enet deps/monocypher deps/beacon deps/libdatachannel
     deps/piccolo-shaders deps/piccolo-shaders-legacy
-    deps/common/hosts-common deps/common/frontends-common deps/common/retroui"
+    deps/common/hosts-common deps/common/multitap-net deps/common/frontends-common deps/common/retroui"
 missing=""
 for submodule in $submodules; do
     if [ ! -e "$submodule/.git" ]; then
