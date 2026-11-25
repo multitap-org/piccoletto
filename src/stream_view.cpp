@@ -7,6 +7,7 @@
 #include "imgui.h"
 
 #include "app_shell.h"
+#include "game_view.h"
 #include "hosts.h"
 #include "touch_ui.h"
 #include "viewport.h"
@@ -94,7 +95,7 @@ bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, floa
 {
     video_output_skip(&view->output);
     view->drawn = false;
-    if (!view->has_picture || view->texture.imgui_id == 0 || !view->texture.has_content)
+    if (!view->has_picture || view->texture.ui_texture == 0 || !view->texture.has_content)
     {
         return false;
     }
@@ -120,8 +121,14 @@ bool stream_view_draw(StreamView* view, const TouchUi* ui, AppShell* shell, floa
         return false;
     }
     const ImGuiViewport* screen = ImGui::GetMainViewport();
-    video_output_draw(&view->output, ImGui::GetWindowDrawList(), &view->texture, screen->Pos.x + x * scale,
-                      screen->Pos.y + y * scale);
+    // The GPU work is recorded once prepared, as when the picture was drawn
+    // here (stream_view_record), whether or not there's an image to show.
+    ShownImage image;
+    if (video_output_shown_image(&view->output, &view->texture, screen->Pos.x + x * scale, screen->Pos.y + y * scale,
+                                 &image))
+    {
+        game_view_draw_in_window(&image);
+    }
     view->drawn = true;
     return true;
 }
