@@ -32,6 +32,7 @@
 #include "home_screen.h"
 #include "hosts.h"
 #include "host_fs.h"
+#include "build_target.h"
 #include "net_build.h"
 #include "quick_menu.h"
 #include "pad_editor.h"
@@ -901,34 +902,6 @@ static void caps_label(NetCaps caps, std::string* out)
     }
 }
 
-// The build's platform for its signed record (net_build.h): os-arch.
-static const char* build_target()
-{
-#if defined(SDL_PLATFORM_ANDROID)
-    const char* os = "android";
-#elif defined(SDL_PLATFORM_WINDOWS)
-    const char* os = "windows";
-#elif defined(SDL_PLATFORM_EMSCRIPTEN)
-    const char* os = "web";
-#else
-    const char* os = "linux";
-#endif
-#if defined(__aarch64__) || defined(_M_ARM64)
-    static char target[32];
-    std::snprintf(target, sizeof(target), "%s-arm64", os);
-#elif defined(__arm__)
-    static char target[32];
-    std::snprintf(target, sizeof(target), "%s-armv7", os);
-#elif defined(__x86_64__) || defined(_M_X64)
-    static char target[32];
-    std::snprintf(target, sizeof(target), "%s-x86_64", os);
-#else
-    static char target[32];
-    std::snprintf(target, sizeof(target), "%s-wasm32", os);
-#endif
-    return target;
-}
-
 // This phone as its hello tells it (net_pairing.h): its name, piccoletto,
 // offering nothing and using GAMEPAD, REMOTE PLAY and SETTINGS, and its
 // build proof when this is a signed release (net_build.h; only tags are
@@ -944,7 +917,7 @@ static void device_info(const App* app, NetDeviceInfo* info)
     NetBuildIdentity build;
     build.app = "piccoletto";
     build.version = PICCOLETTO_VERSION;
-    build.target = build_target();
+    build.target = build_target();   // as the release names its assets (build_target.h)
     const char* base = SDL_GetBasePath();
 #if defined(SDL_PLATFORM_WINDOWS)
     build.exe_path = std::string(base != nullptr ? base : "") + "piccoletto.exe";
