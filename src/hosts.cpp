@@ -788,6 +788,7 @@ static void resolve_done(Hosts* hosts)
 // hole punching, then WebRTC); in a browser WebRTC through the signaling.
 static bool start_connect(Hosts* hosts, int32_t index)
 {
+    hosts->guest_ended = false;
     if (index == HOSTS_GUEST)
     {
         // A guest link: only through its beacon (UDP, then WebRTC).
@@ -1015,6 +1016,7 @@ static void update_locked(Hosts* hosts, double now)
                 else if (event.guest && event.guest_bye == NetGuestBye::ended)
                 {
                     hosts->refusal = NetClientRefusal::guest_link;
+                    hosts->guest_ended = true;
                 }
             }
             break;
@@ -1620,6 +1622,15 @@ const char* hosts_refusal_text(NetClientRefusal refusal)
     case NetClientRefusal::guest_kicked:   return "THE HOST REMOVED YOU FROM THIS SESSION";
     }
     return "";
+}
+
+const char* hosts_failure_text(const Hosts* hosts)
+{
+    if (hosts->guest_ended)
+    {
+        return "THE HOST ENDED THE STREAM";
+    }
+    return hosts_refusal_text(hosts->refusal);
 }
 
 // --- Guest links -------------------------------------------------------------------
