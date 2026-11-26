@@ -22,3 +22,10 @@ leak:X11_AddXRandRDisplay
 # even after eglTerminate. Seen on Wayland with panfrost (frontend_gl_video;
 # piccolo's file has the same line).
 leak:SDL_EGL_LoadLibrary
+
+# SDL3's ALSA driver with no sound card (CI runners): libasound builds its
+# config tree (snd_config_update) while SDL looks for a device and keeps it
+# for the process, even when the open fails. Seen in piccoletto_hosts, whose
+# client opens the audio when the stream's first audio packet arrives.
+leak:ALSA_guess_device_prefix
+leak:ALSA_OpenDevice
