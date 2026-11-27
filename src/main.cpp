@@ -801,6 +801,9 @@ static void send_pad(App* app)
         RetroPad gamepad;
         real_gamepad_retropad(&app->gamepad, &gamepad);
         retropad_merge(&pad, &gamepad);
+        RetroPad keyboard;
+        real_gamepad_keyboard_retropad(ImGui::GetIO().WantTextInput, &keyboard);
+        retropad_merge(&pad, &keyboard);
         if (app->web.active)
         {
             RetroPad page;   // the page's touch pad (its RetroPad bits; 16 = the quick menu, not sent)
@@ -1308,6 +1311,9 @@ static void draw_screen(App* app)
     app->ui.fingers = covered ? nullptr : &app->fingers;
     // A real gamepad lights the pads' parts too (retroui's touch pad takes it as a RetroPad).
     real_gamepad_retropad(&app->gamepad, &app->gamepad_pad);
+    RetroPad keyboard;   // the keyboard lights them too
+    real_gamepad_keyboard_retropad(ImGui::GetIO().WantTextInput, &keyboard);
+    retropad_merge(&app->gamepad_pad, &keyboard);
     app->ui.lit = &app->gamepad_pad;
     app->ui.action_lit = real_gamepad_held(&app->gamepad, SDL_GAMEPAD_BUTTON_GUIDE);
     app->focus = TouchFocus{};

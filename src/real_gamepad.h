@@ -51,5 +51,11 @@ struct RetroPad;
 void real_gamepad_retropad(const RealGamepad* pads, RetroPad* pad);
 
 // A button (SDL_GamepadButton) down on any gamepad now / gone down since the last update.
+// The keyboard as a RetroPad, with piccolo's default keys (frontends-common's
+// input_default_keyboard_bindings): arrows, X = A, Z = B, S = X, A = Y,
+// Q W = L R, E R = L2 R2, Enter = START, Right Shift = SELECT. Empty while
+// `typing` (a text field has the keys).
+void real_gamepad_keyboard_retropad(bool typing, RetroPad* pad);
+
 bool real_gamepad_held(const RealGamepad* pads, int32_t button);
 bool real_gamepad_pressed(const RealGamepad* pads, int32_t button);

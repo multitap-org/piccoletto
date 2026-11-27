@@ -747,6 +747,16 @@ function piccoletto_shell_start() {
     history.replaceState(null, '', location.pathname + location.search);
   }
   document.addEventListener('click', piccoletto_click);
+  // Typing in the page's fields isn't the keyboard as a pad: SDL listens on
+  // the window, so their keys stop at the document.
+  for (const type of ['keydown', 'keyup']) {
+    document.addEventListener(type, function (event) {
+      const target = event.target;
+      if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        event.stopPropagation();
+      }
+    });
+  }
   document.getElementById('pair-open').addEventListener('click', function () { piccoletto_open_pane('pair'); });
   document.getElementById('settings-open').addEventListener('click', function () {
     if (piccoletto_shell.pane_open) {
