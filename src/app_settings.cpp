@@ -9,7 +9,12 @@
 #include "settings_file.h"
 #include "shader_presets.h"
 
-static const char* const THEME_NAMES[] = {"BLUE", "PURPLE", "ZSNES", "BLACK"};
+// In RetroUiTheme's order; the console themes are named after the hardware
+// their colors come from.
+static const char* const THEME_NAMES[] = {"BLUE",         "PURPLE",        "ZSNES",         "BLACK",
+                                          "8-BIT GRAY",   "8-BIT RED",     "16-BIT GRAY A", "16-BIT GRAY B"};
+static_assert(sizeof(THEME_NAMES) / sizeof(THEME_NAMES[0]) == static_cast<size_t>(RetroUiTheme::count),
+              "a name for every theme");
 static const char* const LANGUAGE_KEYS[] = {"en", "es"};
 static const char* const PACING_KEYS[] = {"latency", "balanced", "smooth"};
 
