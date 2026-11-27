@@ -61,7 +61,7 @@ jobs:
       - name: Submodules
         run: |
           git submodule update --init --recursive --depth 1 \
-            deps/SDL deps/imgui deps/libsamplerate deps/gamemode deps/enet deps/monocypher deps/beacon \
+            deps/SDL deps/imgui deps/libsamplerate deps/gamemode deps/enet deps/monocypher deps/7zip deps/beacon \
             deps/common/hosts-common deps/common/multitap-net deps/common/frontends-common deps/common/retroui \
             deps/piccolo-shaders deps/piccolo-shaders-legacy
           git submodule update --init --depth 1 deps/librashader

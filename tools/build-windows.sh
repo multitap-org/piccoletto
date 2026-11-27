@@ -93,7 +93,7 @@ src_dir=$(pwd)
 # left out (Android only), and deps/librashader is always fetched (CMake needs
 # its C header) without --recursive: its own submodules are only its tests.
 submodules="deps/SDL deps/imgui deps/libsamplerate deps/gamemode
-    deps/enet deps/monocypher deps/beacon deps/libdatachannel
+    deps/enet deps/monocypher deps/7zip deps/beacon deps/libdatachannel
     deps/piccolo-shaders deps/piccolo-shaders-legacy
     deps/common/hosts-common deps/common/multitap-net deps/common/frontends-common deps/common/retroui"
 missing=""
