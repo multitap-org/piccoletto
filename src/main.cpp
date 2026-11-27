@@ -118,6 +118,7 @@ struct App
     SettingsFile   layouts_file;
     bool           running    = false;
     bool           testing    = false;   // opened with --screen: the modes stay without a host
+    bool           testing_watch = false;   // --screen remote_play-watching: REMOTE PLAY as a host without GAMEPAD gives it
     int32_t        pair_example = 0;     // --screen pair-typing / pair-code / pair-paired: 1 / 2 / 3
     uint64_t       guest_ready_at = 0;   // a guest's REMOTE PLAY: when what it may do was last shown
     uint32_t       guest_shown_what = 0xffffffffu;
@@ -156,6 +157,26 @@ static bool selected_allows(const App* app, NetCaps cap)
 static bool selected_full_access(const App* app)
 {
     return selected_allows(app, NET_CAP_SETTINGS);
+}
+
+// REMOTE PLAY where this phone only watches: a guest link that says so, or
+// a paired host that gave REMOTE PLAY without GAMEPAD (the host drops the
+// pad of a device without it). No controls are shown and no pad is sent.
+static bool watch_only(const App* app)
+{
+    if (app->screen != Screen::remote_play)
+    {
+        return false;
+    }
+    if (guest_mode(app))
+    {
+        return app->hosts.guest_level != NetGuestLevel::play;
+    }
+    if (app->testing)
+    {
+        return app->testing_watch;
+    }
+    return !selected_allows(app, NET_CAP_GAMEPAD);
 }
 
 // HOME's view of the paired hosts: the modes what each grants opens.
@@ -354,18 +375,34 @@ static void draw_pause_banner(App* app)
 
 static void go_to(App* app, Screen screen);
 
-// A guest's REMOTE PLAY: JOINING while it connects; then what it may do
-// (for a few seconds); a failure stays until OK (back to HOME).
-static void draw_guest_card(App* app)
+// REMOTE PLAY's card. A guest: JOINING while it connects; then what it may
+// do (for a few seconds); a failure stays until OK (back to HOME). A paired
+// host that gave no GAMEPAD: WATCHING and why, for a few seconds once
+// connected.
+static void draw_watch_card(App* app)
 {
-    if (!guest_mode(app))
-    {
-        return;
-    }
     const char* title = nullptr;
     const char* line = nullptr;
-    bool failed = app->hosts.link == LinkStatus::failed;
-    if (failed)
+    bool failed = guest_mode(app) && app->hosts.link == LinkStatus::failed;
+    if (!guest_mode(app))
+    {
+        if (!watch_only(app) || (app->hosts.link != LinkStatus::ready && !app->testing))
+        {
+            app->guest_ready_at = 0;
+            return;
+        }
+        if (app->guest_ready_at == 0)
+        {
+            app->guest_ready_at = SDL_GetTicks();
+        }
+        if (SDL_GetTicks() - app->guest_ready_at > 4000)
+        {
+            return;
+        }
+        title = "WATCHING";
+        line = "THIS HOST GAVE REMOTE PLAY WITHOUT GAMEPAD";
+    }
+    else if (failed)
     {
         title = app->hosts.guest_ended ? "STREAM ENDED"
                 : app->hosts.refusal == NetClientRefusal::guest_full ? "SESSION FULL" : "COULDN'T JOIN";
@@ -793,7 +830,7 @@ constexpr int32_t JOIN_START_FRAMES = 6;   // about 100 ms: a tap the host can't
 static void send_pad(App* app)
 {
     bool playing = (app->screen == Screen::gamepad || app->screen == Screen::remote_play) && !app->menu_open &&
-                   !app->devices_open && !app->editor.active;
+                   !app->devices_open && !app->editor.active && !watch_only(app);
     RetroPad pad;
     if (playing)
     {
@@ -1317,9 +1354,9 @@ static void draw_screen(App* app)
     // REMOTE PLAY: the touch controls hide while a real gamepad is connected (unless shown from the sheet).
     bool gamepad_connected = real_gamepad_connected(&app->gamepad);
     bool show_touch = !gamepad_connected || app->touch_with_gamepad || app->editor.active;
-    if (guest_mode(app) && app->hosts.guest_level != NetGuestLevel::play)
+    if (watch_only(app))
     {
-        show_touch = false;   // a guest that only watches has no pad there
+        show_touch = false;   // only watching (a guest, or no GAMEPAD from this host): no pad there
     }
     HomeHost shown[MAX_SHOWN_HOSTS];
     int32_t shown_count = home_hosts(app, shown);
@@ -1366,7 +1403,7 @@ static void draw_screen(App* app)
     }
     if (app->screen == Screen::remote_play)
     {
-        draw_guest_card(app);
+        draw_watch_card(app);
     }
     touch_ui_end_screen();
     // The ports' tabs over the pads (whatever it grants: read only), down
@@ -1427,7 +1464,7 @@ static void draw_screen(App* app)
         input.host = selected_host(app);
         input.online = app->hosts.link == LinkStatus::ready;
         input.devices = selected_full_access(app);
-        input.touch_toggle = app->screen == Screen::remote_play && gamepad_connected;
+        input.touch_toggle = app->screen == Screen::remote_play && gamepad_connected && !watch_only(app);
         input.touch_shown = show_touch;
         if (app->screen == Screen::remote_play && hosts_streaming(&app->hosts))
         {
@@ -1743,6 +1780,7 @@ static void publish_web_state(App* app)
     web_shell_number(web, "aspect", static_cast<double>(app->stream.aspect));
     web_shell_int(web, "game_running", hosts_game_running(hosts));
     web_shell_bool(web, "remote_play", selected_allows(app, NET_CAP_STREAM));
+    web_shell_bool(web, "watch_only", watch_only(app));
     web_shell_bool(web, "full", selected_full_access(app));
     web_shell_bool(web, "headless_on", hosts->headless_on);
     web_shell_bool(web, "headless_yours", hosts->headless_yours);
@@ -2080,6 +2118,14 @@ int main(int argc, char** argv)
         else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && parse_screen(argv[i + 1], &first))
         {
             app->testing = true;
+            i++;
+        }
+        else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && SDL_strcmp(argv[i + 1], "remote_play-watching") == 0)
+        {
+            // REMOTE PLAY as a host that gave no GAMEPAD shows it (no host needed).
+            first = Screen::remote_play;
+            app->testing = true;
+            app->testing_watch = true;
             i++;
         }
         else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && SDL_strncmp(argv[i + 1], "pair-", 5) == 0)

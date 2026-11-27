@@ -136,7 +136,7 @@ function piccoletto_render() {
   document.body.classList.toggle('playing', modes);
   document.body.classList.toggle('streaming', s.screen === 'remote_play');
   document.body.classList.toggle('mode-gamepad', s.screen === 'gamepad');
-  multitap_pad_set_allowed(modes && !(s.guest.on && !s.guest.play));
+  multitap_pad_set_allowed(modes && !(s.guest.on && !s.guest.play) && !s.link.watch_only);
   const aspect = s.screen === 'remote_play' && s.link.picture ? s.link.aspect : 0;
   multitap_page_game(modes, aspect);
   // PAIR lives in the panel: opening the app's PAIR opens it there.
@@ -245,6 +245,8 @@ function piccoletto_render_picture(s) {
     let text = '<span class="lamp' + (s.link.state === 'ready' ? ' on' : '') + '"></span>';
     if (s.guest.on) {
       text += 'Guest · ' + (s.guest.play && s.guest.port >= 0 ? 'port ' + (s.guest.port + 1) : 'watching') + ' · ';
+    } else if (s.link.watch_only) {
+      text += 'Watching · ';   // this host gave REMOTE PLAY without GAMEPAD
     }
     text += piccoletto_esc(s.link.host);
     if (s.link.state === 'ready') {
