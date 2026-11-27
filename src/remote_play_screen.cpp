@@ -53,6 +53,8 @@ static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* l
                           bool show_touch)
 {
     layout->action_label = hotkeys ? "HOTKEY" : nullptr;   // (retroui's action button: piccoletto's HOTKEY)
+    // retroui's menu button, between SELECT and START: the quick menu (as its arrow and holding START do).
+    layout->menu_label = PIXEL_FONT_UTF8_MENU;
     if (editor->active)
     {
         return pad_editor_draw(editor, ui, frame, layout) ? NavAction::edit_done : NavAction::none;
@@ -60,6 +62,10 @@ static NavAction draw_pad(const TouchUi* ui, const PadFrame* frame, PadLayout* l
     if (show_touch)
     {
         pad_layout_draw(ui, frame, layout);
+        if (layout->menu_pressed)
+        {
+            return NavAction::menu;
+        }
     }
     return NavAction::none;
 }

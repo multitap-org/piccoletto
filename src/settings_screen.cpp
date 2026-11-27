@@ -44,6 +44,21 @@ static void name_field(const TouchUi* ui, AppSettings* settings, float x, float 
     ImGui::PopFont();
 }
 
+// A combo's closed field: the value at the left, an arrow at the right. True when tapped.
+static bool theme_field(const TouchUi* ui, const char* value, float x, float y, float width)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    bool held = false;
+    bool tapped = touch_ui_area(ui, "##theme", x, y, width, CONTROL, &held, TouchNav::reachable);
+    touch_ui_rect(ui, x, y, width, CONTROL, held ? palette->highlight : palette->field_face);
+    float text_y = touch_ui_centered_text_y(ui, y, CONTROL, TouchText::normal);
+    touch_ui_text(ui, x + 6.0f, text_y, value, palette->field_text, TouchText::normal);
+    float arrow_width = touch_ui_text_width(ui, PIXEL_FONT_UTF8_ARROW_DOWN, TouchText::normal);
+    touch_ui_text(ui, x + width - 8.0f - arrow_width, text_y, PIXEL_FONT_UTF8_ARROW_DOWN, palette->field_text,
+                  TouchText::normal);
+    return tapped;
+}
+
 NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSettings* settings, const char* version,
                                const char* const* paired, int32_t paired_count, int32_t* forget)
 {
@@ -86,12 +101,10 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     y += CONTROL + ROW_GAP;
 
     y = label(ui, x, y, "THEME");
-    const char* themes[4] = {app_theme_name(RetroUiTheme::blue), app_theme_name(RetroUiTheme::purple),
-                             app_theme_name(RetroUiTheme::zsnes), app_theme_name(RetroUiTheme::black)};
-    int32_t theme = touch_ui_choices(ui, "##theme", themes, 4, static_cast<int32_t>(settings->theme), x, y, column, CONTROL);
-    if (theme >= 0)
+    // Eight themes don't fit a row of buttons: a field that opens a list.
+    if (theme_field(ui, app_theme_name(settings->theme), x, y, column))
     {
-        settings->theme = static_cast<RetroUiTheme>(theme);
+        screen->theme_list_open = true;
     }
     y += CONTROL + ROW_GAP;
 
@@ -198,4 +211,60 @@ NavAction settings_screen_draw(SettingsScreen* screen, const TouchUi* ui, AppSet
     screen->scroll = screen->scroll < 0.0f ? 0.0f : (screen->scroll > most ? most : screen->scroll);
     touch_ui_pop_clip();
     return action;
+}
+
+void settings_screen_draw_theme_list(SettingsScreen* screen, const TouchUi* ui, AppSettings* settings)
+{
+    const RetroUiPalette* palette = &ui->palette;
+    float width = touch_ui_width(ui);
+    float height = touch_ui_height(ui);
+    constexpr float ROW = CONTROL + 4.0f;
+    int32_t count = static_cast<int32_t>(RetroUiTheme::count);
+    float card_width = width - 2.0f * MARGIN;
+    if (card_width > 200.0f)
+    {
+        card_width = 200.0f;   // a readable width in landscape
+    }
+    float card_height = LABEL_HEIGHT + 8.0f + static_cast<float>(count) * (ROW + GAP) + GAP;
+    float card_x = std::floor((width - card_width) * 0.5f);
+    float card_y = std::floor((height - card_height) * 0.5f);
+    if (card_y < MARGIN)
+    {
+        card_y = MARGIN;
+    }
+
+    touch_ui_begin_overlay(ui, "##theme_list_window");
+    touch_ui_rect(ui, 0.0f, 0.0f, width, height, 0x80000000u);
+    touch_ui_rect(ui, card_x, card_y, card_width, card_height, palette->panel_face);
+    touch_ui_text(ui, card_x + 8.0f, card_y + 6.0f, "THEME", palette->text_disabled, TouchText::normal);
+    float y = card_y + LABEL_HEIGHT + 8.0f;
+    for (int32_t i = 0; i < count; i++)
+    {
+        RetroUiTheme theme = static_cast<RetroUiTheme>(i);
+        char id[32];
+        std::snprintf(id, sizeof(id), "##theme_row%d", static_cast<int>(i));
+        float row_x = card_x + GAP;
+        float row_width = card_width - 2.0f * GAP;
+        if (touch_ui_button(ui, id, row_x, y, row_width, ROW, app_theme_name(theme), TouchButton::card, TouchText::normal))
+        {
+            settings->theme = theme;
+            screen->theme_list_open = false;
+        }
+        if (theme == settings->theme)
+        {
+            touch_ui_outline(ui, row_x, y, row_width, ROW, 1.0f, palette->text_highlight);
+            float check_width = touch_ui_text_width(ui, PIXEL_FONT_UTF8_CHECK, TouchText::normal);
+            touch_ui_text(ui, row_x + row_width - 8.0f - check_width, touch_ui_centered_text_y(ui, y, ROW, TouchText::normal),
+                          PIXEL_FONT_UTF8_CHECK, palette->text_highlight, TouchText::normal);
+        }
+        y += ROW + GAP;
+    }
+    // ImGui gives a tap to the first item under it: the rows, then the card (nothing), then outside (close).
+    bool held = false;
+    touch_ui_area(ui, "##theme_list_card", card_x, card_y, card_width, card_height, &held, TouchNav::taps_only);
+    if (touch_ui_area(ui, "##theme_list_outside", 0.0f, 0.0f, width, height, &held, TouchNav::taps_only))
+    {
+        screen->theme_list_open = false;
+    }
+    touch_ui_end_screen();
 }

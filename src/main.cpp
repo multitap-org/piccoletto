@@ -478,6 +478,7 @@ static void go_to(App* app, Screen screen)
     {
         save_settings(app);
         hosts_set_name(&app->hosts, app->settings.phone_name);
+        app->settings_screen.theme_list_open = false;
     }
     if (app->screen == Screen::pair && screen != Screen::pair)
     {
@@ -644,6 +645,10 @@ static void go_back(App* app)
     else if (app->screen == Screen::home && app->home.sidebar_open)
     {
         app->home.sidebar_open = false;
+    }
+    else if (app->screen == Screen::settings && app->settings_screen.theme_list_open)
+    {
+        app->settings_screen.theme_list_open = false;
     }
     else if (app->editor.active)
     {
@@ -1378,6 +1383,11 @@ static void draw_screen(App* app)
     {
         ports_overlay_reset(&app->ports);
     }
+    // SETTINGS' THEME list above SETTINGS.
+    if (app->screen == Screen::settings && app->settings_screen.theme_list_open)
+    {
+        settings_screen_draw_theme_list(&app->settings_screen, &app->ui, &app->settings);
+    }
     // HOME's sidebar (landscape) the same way, above HOME.
     if (app->screen == Screen::home && app->home.sidebar_open)
     {
@@ -2092,6 +2102,12 @@ int main(int argc, char** argv)
             open_devices = true;
             i++;
         }
+        else if (SDL_strcmp(argv[i], "--screen") == 0 && i + 1 < argc && SDL_strcmp(argv[i + 1], "settings-themes") == 0)
+        {
+            first = Screen::settings;   // SETTINGS with THEME's list open
+            app->settings_screen.theme_list_open = true;
+            i++;
+        }
         else if (SDL_strcmp(argv[i], "--pair-link") == 0 && i + 1 < argc && hosts_link_beacon(argv[i + 1], &link_beacon))
         {
             // Opened with a link (Android: piccoletto://pair): PAIR, its
@@ -2111,7 +2127,7 @@ int main(int argc, char** argv)
         }
         else
         {
-            SDL_Log("Usage: piccoletto [--screen home|pair|pair-typing|pair-code|pair-paired|gamepad|remote_play|devices|settings] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK] [--join LINK]");
+            SDL_Log("Usage: piccoletto [--screen home|pair|pair-typing|pair-code|pair-paired|gamepad|remote_play|devices|settings|settings-themes] [--landscape] [--aspect W:H] [--edit] [--pair-link LINK] [--join LINK]");
         }
     }
 
