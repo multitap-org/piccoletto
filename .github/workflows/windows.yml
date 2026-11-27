@@ -8,12 +8,11 @@
 # Windows' own DLLs and vulkan-1.dll (installed with the GPU driver); any
 # other DLL it ever links from MSYS2 is copied next to it (ntldd). librashader
 # (REMOTE PLAY's slang shaders, loaded at run time) is built and shipped too.
-# Tags: release.yml calls this workflow for v* tags (workflow_call).
+# main and v* tags: release.yml calls this workflow (workflow_call), to sign
+# what it builds (a snapshot or a release).
 name: Windows
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -42,6 +41,14 @@ jobs:
         shell: pwsh
 
       - uses: actions/checkout@v4
+
+      # A build of main is a snapshot the releases server signs (release.yml):
+      # its version says so (tools/snapshot-suffix.sh, read by hosts-common's
+      # multitap_version).
+      - name: Snapshot version
+        if: github.workflow == 'Release' && github.ref_type == 'branch'
+        shell: bash
+        run: tools/snapshot-suffix.sh | tee .multitap-version-suffix
 
       - uses: msys2/setup-msys2@v2
         with:

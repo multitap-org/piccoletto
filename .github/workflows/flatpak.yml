@@ -2,12 +2,11 @@
 # and aarch64, and uploads each .flatpak bundle as an artifact. Install one with:
 #   flatpak install --user piccoletto-<arch>.flatpak
 # The same steps as piccolo's workflow.
-# Tags: release.yml calls this workflow for v* tags (workflow_call).
+# main and v* tags: release.yml calls this workflow (workflow_call), to sign
+# what it builds (a snapshot or a release).
 name: Flatpak
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -29,6 +28,14 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v4
+
+      # A build of main is a snapshot the releases server signs (release.yml):
+      # its version says so (tools/snapshot-suffix.sh, read by hosts-common's
+      # multitap_version).
+      - name: Snapshot version
+        if: github.workflow == 'Release' && github.ref_type == 'branch'
+        shell: bash
+        run: tools/snapshot-suffix.sh | tee .multitap-version-suffix
 
       - name: Submodules
         run: |
