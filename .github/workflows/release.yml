@@ -12,9 +12,10 @@
 #   android-arm64-v8a.apk  android-armeabi-v7a-legacy.apk
 # No web asset: piccoletto's browser build ships inside piccolo's web package.
 # manifest.cfg: app, version, tag, then one [<target>] block per asset with
-# asset, size, sha256, and exe_sha256 where the program can check itself (the
-# program file inside: Windows and Linux; frontends-common net_build.h): the
-# releases server signs a record of it, a build's proof that it's official.
+# asset, size, sha256, and exe_sha256, the hash of what the program checks
+# itself by (frontends-common net_build.h): the executable on Windows and
+# Linux, the native activity's lib/<abi>/libmain.so in the APKs. The releases
+# server signs a record of it, a build's proof that it's official.
 #
 # Refuses to release without the Android release key in the secrets (never a
 # debug APK in a release) or when the tag doesn't match
@@ -123,8 +124,19 @@ jobs:
             cp "$(one "piccoletto-$arch.flatpak")" "release/piccoletto-$version-linux-$arch.flatpak"
             flatpak_exe_hash "linux-$arch" "release/piccoletto-$version-linux-$arch.flatpak" /files/bin/piccoletto
           done
+          # zip_exe_hash TARGET ZIP PATTERN: the same for the one file in a zip (an APK) matching PATTERN.
+          zip_exe_hash() {
+            dir=$(mktemp -d)
+            unzip -q "$2" "$3" -d "$dir" || { echo "no $3 in $2"; exit 1; }
+            found=$(find "$dir" -type f)
+            [ "$(echo "$found" | grep -c .)" = 1 ] || { echo "expected one $3 in $2, found: $found"; exit 1; }
+            exe_hash "$1" "$found"
+            rm -rf "$dir"
+          }
           cp "$(one piccoletto.apk)" "release/piccoletto-$version-android-arm64-v8a.apk"
           cp "$(one piccoletto-legacy.apk)" "release/piccoletto-$version-android-armeabi-v7a-legacy.apk"
+          zip_exe_hash android-arm64-v8a "release/piccoletto-$version-android-arm64-v8a.apk" 'lib/arm64-v8a/libmain.so'
+          zip_exe_hash android-armeabi-v7a-legacy "release/piccoletto-$version-android-armeabi-v7a-legacy.apk" 'lib/*/libmain.so'
 
           manifest=release/manifest.cfg
           {

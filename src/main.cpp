@@ -923,12 +923,12 @@ static void device_info(const App* app, NetDeviceInfo* info)
     build.app = "piccoletto";
     build.version = PICCOLETTO_VERSION;
     build.target = build_target();   // as the release names its assets (build_target.h)
-    const char* base = SDL_GetBasePath();
-#if defined(SDL_PLATFORM_WINDOWS)
-    build.exe_path = std::string(base != nullptr ? base : "") + "piccoletto.exe";
-#else
-    build.exe_path = std::string(base != nullptr ? base : "") + "piccoletto";
-#endif
+    // (The browser's piccoletto has no release of its own: never signed.)
+    if (!net_build_find_program("piccoletto", &build))
+    {
+        SDL_Log("Network: this build is unsigned");
+        return;
+    }
     if (!net_build_proof_load(&build, app->settings_dir.c_str(), false, info))
     {
         net_build_proof_fetch_later(&build, app->settings_dir.c_str());
