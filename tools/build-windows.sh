@@ -7,13 +7,13 @@
 #
 #   tools/build-windows.sh                  Release, deployed
 #   tools/build-windows.sh --deps           first install the packages (pacman)
-#   tools/build-windows.sh --debug          Debug with warnings as errors (build-debug/)
+#   tools/build-windows.sh --debug          Debug with warnings as errors (local-builds/debug/)
 #   tools/build-windows.sh --test           also run the tests (ctest)
 #   tools/build-windows.sh --no-librashader skip librashader (no Rust needed)
 #
 # Environment, all optional:
 #   PICCOLETTO_DIR  where to deploy (default $USERPROFILE/piccoletto)
-#   BUILD_DIR       CMake build folder (default build, or build-debug with --debug)
+#   BUILD_DIR       CMake build folder (default local-builds/release, or local-builds/debug with --debug)
 #
 # The build copies piccoletto.exe and the shader presets (shaders/presets,
 # shaders/gl) to PICCOLETTO_DIR; settings and layouts already there are left
@@ -126,10 +126,10 @@ fi
 piccoletto_dir=${PICCOLETTO_DIR:-${USERPROFILE:-}/piccoletto}
 piccoletto_dir=$(cygpath -u "$piccoletto_dir")
 if [ "$build_type" = Debug ]; then
-    build_dir=${BUILD_DIR:-build-debug}
+    build_dir=${BUILD_DIR:-local-builds/debug}
     warnings_as_errors=ON
 else
-    build_dir=${BUILD_DIR:-build}
+    build_dir=${BUILD_DIR:-local-builds/release}
     warnings_as_errors=OFF
 fi
 # The static C/C++ runtime (CI passes the same flags on both environments).
@@ -152,10 +152,10 @@ fi
 
 if [ "$with_librashader" = 1 ]; then
     echo "== librashader (the first build takes a few minutes)"
-    RUSTFLAGS="-C target-feature=+crt-static" CARGO_TARGET_DIR="$src_dir/build-librashader" \
+    RUSTFLAGS="-C target-feature=+crt-static" CARGO_TARGET_DIR="$src_dir/local-builds/librashader" \
         cargo build --manifest-path deps/librashader/Cargo.toml -p librashader-capi \
         --release --locked --no-default-features --features runtime-vulkan
-    cp -u build-librashader/release/librashader_capi.dll "$piccoletto_dir/librashader.dll"
+    cp -u local-builds/librashader/release/librashader_capi.dll "$piccoletto_dir/librashader.dll"
     cp -u deps/librashader/LICENSE.md "$piccoletto_dir/librashader-LICENSE.md"
 fi
 
