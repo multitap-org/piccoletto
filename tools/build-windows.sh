@@ -7,13 +7,18 @@
 #
 #   tools/build-windows.sh                  Release, deployed
 #   tools/build-windows.sh --deps           first install the packages (pacman)
-#   tools/build-windows.sh --debug          Debug with warnings as errors (build-debug/)
+#   tools/build-windows.sh --debug          Debug with warnings as errors (local-builds/debug/)
 #   tools/build-windows.sh --test           also run the tests (ctest)
 #   tools/build-windows.sh --no-librashader skip librashader (no Rust needed)
+#   tools/build-windows.sh --no-update      build what's here, without pulling first
+#
+# The branch checked out is pulled first (fast-forward only) and its
+# submodules follow it: what gets built is the current branch, up to date.
+# Submodules being worked on (local commits or changed files) stay as they are.
 #
 # Environment, all optional:
 #   PICCOLETTO_DIR  where to deploy (default $USERPROFILE/piccoletto)
-#   BUILD_DIR       CMake build folder (default build, or build-debug with --debug)
+#   BUILD_DIR       CMake build folder (default local-builds/release, or local-builds/debug with --debug)
 #
 # The build copies piccoletto.exe and the shader presets (shaders/presets,
 # shaders/gl) to PICCOLETTO_DIR; settings and layouts already there are left
@@ -22,8 +27,7 @@
 # piccoletto.exe, the GCC runtime for librashader.dll) is copied too. vulkan-1.dll is not: the GPU driver's
 # loader must win, and Windows looks in piccoletto's folder first.
 #
-# Submodules not checked out yet are fetched; the ones already there are left
-# as they are.
+# Submodules not checked out yet are fetched.
 #
 # Packages (UCRT64; CLANGARM64 has the same with its prefix and clang), what
 # --deps installs:
@@ -35,13 +39,15 @@ build_type=Release
 install_deps=0
 run_tests=0
 with_librashader=1
+update=1
 for arg in "$@"; do
     case "$arg" in
         --deps) install_deps=1 ;;
         --debug) build_type=Debug ;;
         --test) run_tests=1 ;;
         --no-librashader) with_librashader=0 ;;
-        -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --no-update) update=0 ;;
+        -h|--help) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "build-windows.sh: unknown option $arg (--help)" >&2; exit 1 ;;
     esac
 done
@@ -87,6 +93,29 @@ done
 cd "$(dirname "$0")/.."
 src_dir=$(pwd)
 
+# The branch checked out, brought up to date first: fast-forwarded to its
+# upstream, never merged or rebased. A detached HEAD or a branch with no
+# upstream is built as it is. When the pull moved the checkout the script
+# starts again, since the pull may have changed the script itself.
+if [ "$update" = 1 ] && [ -z "${MULTITAP_BUILD_UPDATED:-}" ]; then
+    branch=$(git symbolic-ref -q --short HEAD || true)
+    if [ -z "$branch" ]; then
+        echo "== no branch checked out (detached HEAD): built as it is"
+    elif ! git rev-parse -q --verify "@{upstream}" >/dev/null 2>&1; then
+        echo "== $branch has no upstream branch: built as it is"
+    else
+        echo "== updating $branch"
+        before=$(git rev-parse HEAD)
+        if ! git pull --ff-only; then
+            echo "build-windows.sh: couldn't fast-forward $branch (no network, local commits that diverged, or changed files in the way). Fix that, or --no-update to build what's here" >&2
+            exit 1
+        fi
+        if [ "$(git rev-parse HEAD)" != "$before" ]; then
+            MULTITAP_BUILD_UPDATED=1 exec "$src_dir/tools/build-windows.sh" "$@"
+        fi
+    fi
+fi
+
 # The submodules, only the ones not checked out yet (no .git in their
 # folder): one already there may be on a branch being worked on, and `git
 # submodule update` would move it back to the pinned commit. deps/mbedtls is
@@ -112,6 +141,41 @@ if [ ! -e deps/librashader/.git ]; then
     git submodule update --init deps/librashader
 fi
 
+# The submodules already checked out follow the updated branch, fast-forward
+# only as well. One on a branch is pulled like the checkout above. One on a
+# detached HEAD moves to the commit the branch pins, when that commit is ahead
+# of it and no file in it is changed. Anything else (local commits, changed
+# files, a branch with no upstream) is being worked on and stays as it is.
+if [ "$update" = 1 ]; then
+    git submodule status | while read -r state path _; do
+        case "$state" in
+            -*) continue ;; # not checked out
+        esac
+        sub_branch=$(git -C "$path" symbolic-ref -q --short HEAD || true)
+        if [ -n "$sub_branch" ]; then
+            if git -C "$path" rev-parse -q --verify "@{upstream}" >/dev/null 2>&1; then
+                git -C "$path" pull -q --ff-only ||
+                    echo "   $path: couldn't fast-forward $sub_branch, left as it is"
+            fi
+            continue
+        fi
+        case "$state" in
+            +*) ;;
+            *) continue ;; # already at the pinned commit
+        esac
+        pinned=$(git rev-parse "HEAD:$path")
+        git -C "$path" cat-file -e "$pinned^{commit}" 2>/dev/null || git -C "$path" fetch -q || true
+        if git -C "$path" merge-base --is-ancestor HEAD "$pinned" 2>/dev/null &&
+            git -C "$path" diff --quiet HEAD; then
+            echo "== submodule: $path -> $(git -C "$path" rev-parse --short "$pinned")"
+            git -c url."https://github.com/".insteadOf="git@github.com:" \
+                submodule update --recursive -- "$path"
+        else
+            echo "   $path: not at the pinned commit and being worked on, left as it is"
+        fi
+    done
+fi
+
 if [ "$with_librashader" = 1 ]; then
     if ! command -v cargo >/dev/null 2>&1; then
         echo "build-windows.sh: cargo not found: pacman -S --needed \${MINGW_PACKAGE_PREFIX}-rust (or --no-librashader)" >&2
@@ -126,10 +190,10 @@ fi
 piccoletto_dir=${PICCOLETTO_DIR:-${USERPROFILE:-}/piccoletto}
 piccoletto_dir=$(cygpath -u "$piccoletto_dir")
 if [ "$build_type" = Debug ]; then
-    build_dir=${BUILD_DIR:-build-debug}
+    build_dir=${BUILD_DIR:-local-builds/debug}
     warnings_as_errors=ON
 else
-    build_dir=${BUILD_DIR:-build}
+    build_dir=${BUILD_DIR:-local-builds/release}
     warnings_as_errors=OFF
 fi
 # The static C/C++ runtime (CI passes the same flags on both environments).
@@ -152,10 +216,10 @@ fi
 
 if [ "$with_librashader" = 1 ]; then
     echo "== librashader (the first build takes a few minutes)"
-    RUSTFLAGS="-C target-feature=+crt-static" CARGO_TARGET_DIR="$src_dir/build-librashader" \
+    RUSTFLAGS="-C target-feature=+crt-static" CARGO_TARGET_DIR="$src_dir/local-builds/librashader" \
         cargo build --manifest-path deps/librashader/Cargo.toml -p librashader-capi \
         --release --locked --no-default-features --features runtime-vulkan
-    cp -u build-librashader/release/librashader_capi.dll "$piccoletto_dir/librashader.dll"
+    cp -u local-builds/librashader/release/librashader_capi.dll "$piccoletto_dir/librashader.dll"
     cp -u deps/librashader/LICENSE.md "$piccoletto_dir/librashader-LICENSE.md"
 fi
 

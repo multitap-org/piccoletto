@@ -190,3 +190,34 @@ void real_gamepad_retropad(const RealGamepad* pads, RetroPad* pad)
     pad->analog[1][0] = retropad_axis(pads->right_x);
     pad->analog[1][1] = retropad_axis(pads->right_y);
 }
+
+void real_gamepad_keyboard_retropad(bool typing, RetroPad* pad)
+{
+    *pad = RetroPad{};
+    if (typing)
+    {
+        return;
+    }
+    struct KeyMap
+    {
+        SDL_Scancode   key;
+        RetroPadButton retro;
+    };
+    static const KeyMap MAP[] = {
+        {SDL_SCANCODE_UP, RetroPadButton::up},       {SDL_SCANCODE_DOWN, RetroPadButton::down},
+        {SDL_SCANCODE_LEFT, RetroPadButton::left},   {SDL_SCANCODE_RIGHT, RetroPadButton::right},
+        {SDL_SCANCODE_X, RetroPadButton::a},         {SDL_SCANCODE_Z, RetroPadButton::b},
+        {SDL_SCANCODE_S, RetroPadButton::x},         {SDL_SCANCODE_A, RetroPadButton::y},
+        {SDL_SCANCODE_Q, RetroPadButton::l},         {SDL_SCANCODE_W, RetroPadButton::r},
+        {SDL_SCANCODE_E, RetroPadButton::l2},        {SDL_SCANCODE_R, RetroPadButton::r2},
+        {SDL_SCANCODE_RETURN, RetroPadButton::start}, {SDL_SCANCODE_RSHIFT, RetroPadButton::select},
+    };
+    const bool* keys = SDL_GetKeyboardState(nullptr);
+    for (size_t i = 0; i < sizeof(MAP) / sizeof(MAP[0]); i++)
+    {
+        if (keys[MAP[i].key])
+        {
+            retropad_press(pad, MAP[i].retro);
+        }
+    }
+}

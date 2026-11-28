@@ -1,5 +1,6 @@
 # Build output
 build*/
+local-builds/
 out/
 .cache/
 compile_commands.json
@@ -15,3 +16,6 @@ imgui.ini
 # Notes stay local
 docs/
 .flatpak-builder/
+
+# The version suffix CI writes for snapshots (tools/snapshot-suffix.sh)
+.multitap-version-suffix

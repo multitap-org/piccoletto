@@ -12,7 +12,8 @@
 # that run: installing over a build signed by the other key needs an
 # uninstall first.
 #
-# Tags: release.yml calls this workflow for v* tags (workflow_call).
+# main and v* tags: release.yml calls this workflow (workflow_call), to sign
+# what it builds (a snapshot or a release).
 #
 # librashader (shaders) goes in too: android/build-librashader.sh with
 # rustup's aarch64-linux-android target and the NDK's clang, cached by the
@@ -25,8 +26,6 @@
 name: Android
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -56,6 +55,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # A build of main is a snapshot the releases server signs (release.yml):
+      # its version says so (tools/snapshot-suffix.sh, read by hosts-common's
+      # multitap_version).
+      - name: Snapshot version
+        if: github.workflow == 'Release' && github.ref_type == 'branch'
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$PWD"   # the Flatpak job's container
+          tools/snapshot-suffix.sh | tee .multitap-version-suffix
 
       # r30: its libc++ has std::from_chars for double (frontends-common's
       # settings); the NDK the runner comes with may be older.
